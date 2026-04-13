@@ -98,7 +98,7 @@ jobs:
       - name: Run tests with coverage
         run: |
           uv run python -m pytest tests/ \
-            --cov=src/python_template \
+            --cov=src/dev_patterns \
             --cov-report=xml:coverage-${{ matrix.python-version }}.xml \
             --cov-report=term-missing \
             -v
