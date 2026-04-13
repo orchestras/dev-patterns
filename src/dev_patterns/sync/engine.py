@@ -7,6 +7,7 @@ import stat
 import tarfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import IO
 
 from dev_patterns.core.ui import Console
 from dev_patterns.sync.client import GitHubClient
@@ -72,18 +73,24 @@ class SyncEngine:
 
     project_root: Path
     spec: VersionSpec
-    cache_dir: Path | None = None
-    console: Console = None  # type: ignore[assignment]
-    client: GitHubClient = None  # type: ignore[assignment]
+    cache_dir: Path | None = field(default=None)
+    console: Console | None = field(default=None)
+    client: GitHubClient | None = field(default=None)
+
+    # Resolved (non-None) references set in __post_init__
+    _console: Console = field(init=False, repr=False)
+    _client: GitHubClient = field(init=False, repr=False)
+    _cache_dir: Path = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Set up defaults for console, client, and cache_dir."""
-        if self.console is None:
-            self.console = Console()
-        if self.client is None:
-            self.client = GitHubClient(self.spec.repo)
-        if self.cache_dir is None:
-            self.cache_dir = self.project_root / ".mise" / ".patterns-cache"
+        self._console = self.console if self.console is not None else Console()
+        self._client = self.client if self.client is not None else GitHubClient(self.spec.repo)
+        self._cache_dir = (
+            self.cache_dir
+            if self.cache_dir is not None
+            else self.project_root / ".mise" / ".patterns-cache"
+        )
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -93,11 +100,11 @@ class SyncEngine:
         Returns:
             SyncResult describing what happened.
         """
-        self.console.header("Patterns Sync")
-        self.console.info("Repo", self.spec.repo)
-        self.console.info("Channel", self.spec.channel)
-        self.console.info("Source", self.spec.source)
-        self.console.blank()
+        self._console.header("Patterns Sync")
+        self._console.info("Repo", self.spec.repo)
+        self._console.info("Channel", self.spec.channel)
+        self._console.info("Source", self.spec.source)
+        self._console.blank()
 
         if self.spec.use_release:
             return self._sync_release()
@@ -107,28 +114,28 @@ class SyncEngine:
 
     def _sync_ref(self) -> SyncResult:
         """Sync from a branch/SHA ref (no release required)."""
-        self.console.working("Fetching latest commit hash…")
-        latest_hash = self.client.head_sha(self.spec.version)
+        self._console.working("Fetching latest commit hash…")
+        latest_hash = self._client.head_sha(self.spec.version)
         if not latest_hash:
             msg = f"Could not resolve ref '{self.spec.version}' on {self.spec.repo}"
-            self.console.warn(msg)
+            self._console.warn(msg)
             return SyncResult(error=msg, spec=self.spec)
 
         if self._is_current(latest_hash):
-            self.console.ok(f"Already current ({latest_hash[:8]})")
+            self._console.ok(f"Already current ({latest_hash[:8]})")
             return SyncResult(skipped=True, commit_hash=latest_hash, spec=self.spec)
 
         tarball = self._download_ref_tarball(latest_hash)
         if tarball is None:
             msg = "Tarball download failed"
-            self.console.error(msg)
+            self._console.error(msg)
             return SyncResult(error=msg, spec=self.spec)
 
         extract_dir = self._extract(tarball)
         synced = self._apply_channel(extract_dir, latest_hash)
         self._write_hash(latest_hash)
-        self.console.blank()
-        self.console.done(f"Patterns synced ({self.spec.channel} @ {latest_hash[:8]})")
+        self._console.blank()
+        self._console.done(f"Patterns synced ({self.spec.channel} @ {latest_hash[:8]})")
         return SyncResult(synced_files=synced, commit_hash=latest_hash, spec=self.spec)
 
     def _sync_release(self) -> SyncResult:
@@ -142,30 +149,30 @@ class SyncEngine:
         # everything from the tarball root into the project root.
         """
         tag = self.spec.version
-        self.console.working(f"Downloading release tarball {tag}…")
-        tarball_path = self.cache_dir / f"release-{tag}.tar.gz"  # type: ignore[operator]
+        self._console.working(f"Downloading release tarball {tag}…")
+        tarball_path = self._cache_dir / f"release-{tag}.tar.gz"
         try:
-            self.client.download_release_tarball(tag, tarball_path)
+            self._client.download_release_tarball(tag, tarball_path)
         except RuntimeError as exc:
             msg = str(exc)
-            self.console.error(msg)
+            self._console.error(msg)
             return SyncResult(error=msg, spec=self.spec)
 
         extract_dir = self._extract(tarball_path)
         synced = self._apply_release(extract_dir)
-        self.console.blank()
-        self.console.done(f"Release {tag} applied from {self.spec.repo}")
+        self._console.blank()
+        self._console.done(f"Release {tag} applied from {self.spec.repo}")
         return SyncResult(synced_files=synced, commit_hash=tag, spec=self.spec)
 
     # ── Download helpers ──────────────────────────────────────────────────────
 
     def _download_ref_tarball(self, sha: str) -> Path | None:
         """Download a ref tarball; returns path or None on failure."""
-        self.console.working(f"Downloading tarball ({sha[:8]})…")
-        tarball_path = self.cache_dir / f"patterns-{sha[:8]}.tar.gz"  # type: ignore[operator]
-        self.cache_dir.mkdir(parents=True, exist_ok=True)  # type: ignore[union-attr]
+        self._console.working(f"Downloading tarball ({sha[:8]})…")
+        tarball_path = self._cache_dir / f"patterns-{sha[:8]}.tar.gz"
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
         try:
-            self.client.download_tarball(sha, tarball_path)
+            self._client.download_tarball(sha, tarball_path)
         except Exception:
             return None
         else:
@@ -183,9 +190,8 @@ class SyncEngine:
             members = tf.getmembers()
             # Strip the GitHub-generated top-level directory (org-repo-sha/)
             prefix = members[0].name.split("/")[0] if members else ""
+            pfx = prefix + "/"
             for member in members:
-                # Strip top-level dir prefix
-                pfx = prefix + "/"
                 rel = member.name[len(pfx) :] if member.name.startswith(pfx) else member.name
                 if not rel:
                     continue
@@ -194,8 +200,10 @@ class SyncEngine:
                     dest.mkdir(parents=True, exist_ok=True)
                 elif member.isfile():
                     dest.parent.mkdir(parents=True, exist_ok=True)
-                    with tf.extractfile(member) as fh, dest.open("wb") as out:  # type: ignore[union-attr]
-                        shutil.copyfileobj(fh, out)
+                    fh: IO[bytes] | None = tf.extractfile(member)
+                    if fh is not None:
+                        with fh, dest.open("wb") as out:
+                            shutil.copyfileobj(fh, out)
                     # Preserve executable bit
                     if member.mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
                         dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -215,7 +223,7 @@ class SyncEngine:
         """
         channel_dir = extract_dir / "lib" / self.spec.channel
         if not channel_dir.exists():
-            self.console.warn(f"Channel directory not found: lib/{self.spec.channel}")
+            self._console.warn(f"Channel directory not found: lib/{self.spec.channel}")
             return []
 
         written: list[str] = []
@@ -223,16 +231,16 @@ class SyncEngine:
         # Sync mise tasks
         tasks_src = channel_dir / "mise" / "tasks"
         if tasks_src.exists():
-            self.console.working("Syncing mise tasks…")
+            self._console.working("Syncing mise tasks…")
             tasks_dst = self.project_root / ".mise" / "tasks"
             written += self._copy_tree(tasks_src, tasks_dst, make_executable=True)
-            self.console.ok(f"Tasks synced → .mise/tasks/ ({len(written)} files)")
+            self._console.ok(f"Tasks synced → .mise/tasks/ ({len(written)} files)")
 
         # Sync hooks
         hooks_src = channel_dir / "hooks"
         hooks_count_before = len(written)
         if hooks_src.exists():
-            self.console.working("Syncing git hooks…")
+            self._console.working("Syncing git hooks…")
             hooks_dst = self.project_root / "config" / "githooks" / "hooks"
             hook_files = self._copy_tree(
                 hooks_src,
@@ -240,7 +248,6 @@ class SyncEngine:
                 make_executable=True,
                 skip_extensions={".toml"},
             )
-            # Always copy .toml manifests (for reference) without +x
             manifest_files = self._copy_tree(
                 hooks_src,
                 hooks_dst,
@@ -249,7 +256,7 @@ class SyncEngine:
             )
             written += hook_files + manifest_files
             n = len(written) - hooks_count_before
-            self.console.ok(f"Hooks synced → config/githooks/hooks/ ({n} files)")
+            self._console.ok(f"Hooks synced → config/githooks/hooks/ ({n} files)")
 
         # Sync any other top-level items in the channel directory
         for item in channel_dir.iterdir():
@@ -263,7 +270,7 @@ class SyncEngine:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(item, dest)
                 written.append(item.name)
-            self.console.ok(f"Synced {item.name}")
+            self._console.ok(f"Synced {item.name}")
 
         return written
 
@@ -295,7 +302,7 @@ class SyncEngine:
             shutil.copy2(src_path, dest)
             written.append(str(rel))
         if written:
-            self.console.ok(f"Extracted {len(written)} files from release tarball")
+            self._console.ok(f"Extracted {len(written)} files from release tarball")
         return written
 
     # ── Utility helpers ───────────────────────────────────────────────────────
