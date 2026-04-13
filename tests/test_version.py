@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from python_template.version import __version__
+from dev_patterns.version import __version__
 
 
 @pytest.mark.unit

@@ -8,6 +8,6 @@ import pytest
 @pytest.fixture(scope="session")
 def app_version() -> str:
     """Return the current application version."""
-    from python_template.version import __version__
+    from dev_patterns.version import __version__
 
     return __version__

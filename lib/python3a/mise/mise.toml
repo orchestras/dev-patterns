@@ -1,0 +1,36 @@
+# lib/python3a/mise/mise.toml — Channel mise task configuration
+#
+# This file is SYNCED into the target repo's mise.toml [env] section
+# by `mise run patterns:sync`.  It declares env vars and task directories
+# that this channel contributes.
+#
+# When patterns:sync runs it:
+#   1. Copies all tasks from lib/$channel/mise/tasks/ → .mise/tasks/
+#   2. Merges env vars below into the target repo's mise.toml [env] section
+#   3. Writes the current commit hash to .patterns-hash
+
+[channel]
+name        = "python3a"
+description = "Python 3 project (UV + Ruff + Ty + Mise) patterns channel"
+version     = "0.1.0"
+
+[tools]
+python = "3.13"
+uv     = "latest"
+ruff   = "latest"
+delta  = "latest"
+
+[env]
+# Patterns subscription tracking
+PATTERNS_CHANNEL = "python3a"
+PATTERNS_REPO    = "orchestras/dev-patterns"
+
+# Git hooks integration
+GITHOOKS_VERSION = "main"
+GITHOOKS_REPO    = "orchestras/dev-patterns"
+GITHOOKS_PROFILE = "python3a"
+
+# UV venv paths
+UV_PROJECT_ENVIRONMENT = "{{config_root}}/.venv"
+VIRTUAL_ENV            = "{{config_root}}/.venv"
+PATH                   = "{{config_root}}/.venv/bin:{{env.PATH}}"
