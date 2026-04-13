@@ -44,6 +44,8 @@ jobs:
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
+    # Requires Dependency Graph to be enabled in repository security settings:
+    # https://github.com/orchestras/dev-patterns/settings/security_analysis
     if: github.event_name == 'pull_request'
     steps:
       - name: Checkout
@@ -54,3 +56,6 @@ jobs:
         with:
           fail-on-severity: high
           deny-licenses: GPL-3.0, AGPL-3.0
+        # Non-fatal until Dependency Graph is confirmed enabled in repo settings.
+        # Remove continue-on-error once the graph is active.
+        continue-on-error: true

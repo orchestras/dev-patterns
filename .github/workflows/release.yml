@@ -72,7 +72,7 @@ jobs:
             --distpath bin \
             --workpath build/pyinstaller \
             --specpath build \
-            src/python_template/__main__.py
+            src/dev_patterns/__main__.py
 
       - name: Generate checksum
         shell: bash
