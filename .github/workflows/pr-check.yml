@@ -128,16 +128,7 @@ jobs:
       - name: Bandit security scan
         run: |
           uv tool install bandit
-          uv tool run bandit -r src/ -f sarif -o bandit.sarif || true
           uv tool run bandit -r src/ -ll
-
-      - name: Upload Bandit SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: bandit.sarif
-          category: bandit
-        continue-on-error: true
 
       - name: Dependency audit (pip-audit)
         run: |

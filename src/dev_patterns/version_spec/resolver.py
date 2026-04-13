@@ -4,15 +4,10 @@ from __future__ import annotations
 
 import os
 import re
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib  # type: ignore[no-redef]
-
 
 # New-format .githooks-version has exactly 4 slash-separated parts: org/repo/channel/version
 _NEW_FORMAT_PARTS = 4

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dev_patterns.core.ui import Console
@@ -27,12 +27,13 @@ class HookInstaller:
 
     source_dir: Path
     dest_dir: Path
-    console: Console = None  # type: ignore[assignment]
+    console: Console | None = field(default=None)
+
+    _console: Console = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Initialise the console if not supplied."""
-        if self.console is None:
-            self.console = Console()
+        """Initialise the resolved console."""
+        self._console = self.console if self.console is not None else Console()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ class HookInstaller:
             hook_path = self.dest_dir / name
             if hook_path.exists():
                 hook_path.unlink()
-                self.console.ok(f"Removed {name}")
+                self._console.ok(f"Removed {name}")
                 removed.append(name)
         return removed
 
@@ -91,13 +92,13 @@ class HookInstaller:
         """
         src = self.source_dir / entry.script
         if not src.exists():
-            self.console.warn(f"Hook script not found, skipping: {entry.script}")
+            self._console.warn(f"Hook script not found, skipping: {entry.script}")
             return False
 
         dest = self.dest_dir / entry.name
         shutil.copy2(src, dest)
         self._make_executable(dest)
-        self.console.ok(f"Installed {entry.name}  {self._dim(entry.description)}")
+        self._console.ok(f"Installed {entry.name}  {self._dim(entry.description)}")
         return True
 
     @staticmethod
