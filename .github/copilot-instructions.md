@@ -1,8 +1,11 @@
-# Copilot Instructions for python3 template
+# Copilot Instructions for dev-patterns
 
 ## Project Overview
 
-This is a Python 3 project template using UV (package manager), Ruff (linter + formatter),
+`dev-patterns` is the central patterns library for orchestras repositories.
+It provides git hook management, mise task syncing, and channel subscription tooling.
+
+Python 3 project using UV (package manager), Ruff (linter + formatter),
 Ty (type checker), pytest (testing), and Mise (task runner / tool manager).
 
 ## Key Conventions
@@ -12,7 +15,8 @@ Ty (type checker), pytest (testing), and Mise (task runner / tool manager).
 - **Type checker**: Ty (`ty check`) — Astral's new type checker
 - **Test runner**: pytest with coverage (`pytest tests/`)
 - **Task runner**: Mise (`mise run <task>`) — tasks are in `.mise/tasks/`
-- **Version authority**: `pyproject.toml` → synced to `src/python_template/version.py`
+- **Version authority**: `pyproject.toml` → synced to `src/dev_patterns/version.py`
+- **Channel patterns**: live under `lib/$channel/` (hooks + mise tasks)
 
 ## Code Style
 

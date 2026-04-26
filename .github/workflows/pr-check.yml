@@ -30,10 +30,10 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup mise
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@v4
         with:
           experimental: true
 
@@ -50,10 +50,10 @@ jobs:
     name: typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup mise
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@v4
         with:
           experimental: true
 
@@ -80,15 +80,15 @@ jobs:
         python-version: ["3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup mise
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@v4
         with:
           experimental: true
 
       - name: Setup Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -98,14 +98,14 @@ jobs:
       - name: Run tests with coverage
         run: |
           uv run python -m pytest tests/ \
-            --cov=src/python_template \
+            --cov=src/dev_patterns \
             --cov-report=xml:coverage-${{ matrix.python-version }}.xml \
             --cov-report=term-missing \
             -v
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.13'
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v6
         with:
           files: coverage-${{ matrix.python-version }}.xml
           fail_ci_if_error: false
@@ -115,10 +115,10 @@ jobs:
     name: security
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup mise
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@v4
         with:
           experimental: true
 
@@ -128,16 +128,7 @@ jobs:
       - name: Bandit security scan
         run: |
           uv tool install bandit
-          uv tool run bandit -r src/ -f sarif -o bandit.sarif || true
           uv tool run bandit -r src/ -ll
-
-      - name: Upload Bandit SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: bandit.sarif
-          category: bandit
-        continue-on-error: true
 
       - name: Dependency audit (pip-audit)
         run: |
