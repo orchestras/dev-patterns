@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run tests in watch mode, re-running on file changes"
+set -euo pipefail
+deno test --allow-all --watch

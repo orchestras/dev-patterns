@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="List remote semver tags"
+set -euo pipefail
+git ls-remote --tags origin 'refs/tags/[0-9]*' | awk '{print $2}' | sed 's|refs/tags/||' | sort -V

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — deno1a channel
+
+- **`/lib/deno1a/` channel directory** — patterns subscription for Deno projects:
+  - `hooks/` — git hook scripts (`pre-commit`, `commit-msg`, `pre-push`) with `githooks.toml`
+    TOML manifest; `pre-commit` runs `deno fmt --check` + `deno lint` on staged TS/JS files
+  - `mise/mise.toml` — channel env var declarations including `DENO_TLS_CA_STORE=system,mozilla`
+    for native TLS / corporate proxy support (Zscaler-compatible)
+  - `mise/tasks/` — full task suite: `install`, `run`, `fmt`, `fmt:check`, `lint`, `lint:fix`,
+    `typecheck`, `test`, `test:cov`, `test:watch`, `deno:compile`, `deno:bundle`, `deno:upgrade`,
+    `ci:all`, `bump:patch/minor/major/prerel`, `tag/*`, `version/*`, `vcs/*`, `hooks/*`,
+    `git:config`, `project:init`, `scan:deps/sast/ghas`, `secrets/*`, `patterns/*`
+  - `scripts/` — `semver.sh`, `colors.sh`, `sync_patterns.sh` synced to consumer repo
+- **No `v` prefix on release tags** — Deno channel uses bare semver tags (`0.1.0` not `v0.1.0`)
+- **Version stored in `deno.json`** — `bump:*` tasks update `.version` in `deno.json` via `jq`
+- **Native TLS** — `DENO_TLS_CA_STORE = "system,mozilla"` set in channel `mise.toml`
+
 ### Added — feature/000967-Base-Patterns
 
 - **`dev_patterns` Python package** — replaces `python_template`; provides OOP sync engine,
