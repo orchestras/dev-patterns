@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#MISE description="Bump pre-release version (0.1.5 → 0.1.6-alpha.1), update deno.json, commit, tag"
+# Usage: mise run bump:prerel [alpha|beta|rc]
+set -euo pipefail
+
+SCRIPTS_DIR="$(git rev-parse --show-toplevel)/scripts"
+git fetch --tags origin
+
+PRE_LABEL="${1:-alpha}"
+
+latest=$(git tag -l '[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v '+' | head -n 1)
+[ -z "$latest" ] && latest="0.0.0"
+
+new_ver=$("${SCRIPTS_DIR}/semver.sh" bump prerel "${PRE_LABEL}." "${latest}")
+new_tag="${new_ver}"
+
+if [ ! -f "deno.json" ]; then
+  echo "No deno.json found"
+  exit 1
+fi
+
+tmp=$(mktemp)
+jq --arg v "${new_ver}" '.version = $v' deno.json > "${tmp}" && mv "${tmp}" deno.json
+echo "Updated deno.json to ${new_ver}"
+
+git add deno.json
+git commit -m "chore: bump version ${latest} → ${new_tag}"
+
+git tag -l | grep -qx "${new_tag}" || git tag -a "${new_tag}" -m "${new_tag}"
+
+echo "✓ Bumped ${latest} → ${new_tag} (committed + tagged, NOT pushed)"
+echo "  Run 'mise run tag:push' to push the tag and trigger release."

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Run the project entrypoint (deno run main/mod.ts)"
+set -euo pipefail
+
+ENTRY="$(jq -r '.main // "mod.ts"' deno.json 2>/dev/null || echo 'mod.ts')"
+
+exec deno run --allow-all "${ENTRY}" "$@"

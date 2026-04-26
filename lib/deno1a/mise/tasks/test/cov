@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Run tests with coverage report (deno test --coverage)"
+set -euo pipefail
+
+COV_DIR="coverage"
+rm -rf "${COV_DIR}"
+
+deno test --allow-all --coverage="${COV_DIR}"
+deno coverage "${COV_DIR}" --lcov --output="${COV_DIR}/lcov.info"
+deno coverage "${COV_DIR}"
+
+echo "✓ Coverage report written to ${COV_DIR}/"

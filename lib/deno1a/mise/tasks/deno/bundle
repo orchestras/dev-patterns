@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="Bundle project for browser/Node via esbuild (deno run with esbuild)"
+set -euo pipefail
+
+ENTRY="$(jq -r '.main // "mod.ts"' deno.json 2>/dev/null || echo 'mod.ts')"
+OUT="dist/bundle.js"
+
+mkdir -p dist
+
+echo "Bundling ${ENTRY} → ${OUT}..."
+deno run \
+  --allow-read \
+  --allow-write \
+  --allow-env \
+  npm:esbuild \
+  "${ENTRY}" \
+  --bundle \
+  --format=esm \
+  --outfile="${OUT}"
+
+echo "✓ Bundle written to ${OUT}"
