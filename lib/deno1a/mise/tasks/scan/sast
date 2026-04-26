@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Run SAST: deno lint with all rules enabled"
+set -euo pipefail
+
+echo "=== SAST Scan ==="
+
+echo ""
+echo "--- deno lint (all rules) ---"
+deno lint --rules
+
+echo ""
+echo "✓ SAST scan complete"

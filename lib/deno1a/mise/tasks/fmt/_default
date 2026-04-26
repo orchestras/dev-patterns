@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Format all source files with deno fmt"
+set -euo pipefail
+deno fmt
+echo "✓ Formatting applied"

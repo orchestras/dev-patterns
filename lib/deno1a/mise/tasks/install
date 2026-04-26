@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#MISE description="Cache all Deno dependencies declared in deno.json / import_map"
+set -euo pipefail
+
+echo "Caching Deno dependencies..."
+deno cache --reload "$(jq -r '.main // "mod.ts"' deno.json 2>/dev/null || echo 'mod.ts')" 2>/dev/null || true
+
+if [ -f "deno.lock" ]; then
+  echo "Lock file present — running deno install for import map resolution..."
+  deno install --allow-all 2>/dev/null || true
+fi
+
+echo "✓ Dependencies cached"

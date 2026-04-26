@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Show the current version from deno.json"
+set -euo pipefail
+
+if [ ! -f "deno.json" ]; then
+  echo "No deno.json found"
+  exit 1
+fi
+
+version=$(jq -r '.version // "0.0.0"' deno.json)
+echo "${version}"

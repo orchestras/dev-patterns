@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#MISE description="Type-check all TypeScript sources with deno check"
+set -euo pipefail
+
+ENTRY="$(jq -r '.main // "mod.ts"' deno.json 2>/dev/null || echo 'mod.ts')"
+
+echo "Running deno check on ${ENTRY}..."
+deno check "${ENTRY}"
+echo "✓ Type check passed"

@@ -1,54 +1,112 @@
-# python3
+# dev-patterns
 
-> Python 3 template — UV · Ruff · Ty · pytest · Mise · PyInstaller · GHAS
+> Central patterns library for orchestras repositories — git hooks, mise tasks, and channel subscriptions
 
-A batteries-included Python 3 project template modelled after [orchestras/deno](https://github.com/orchestras/deno). All automation lives in `.mise/tasks/` as executable scripts (no inline TOML blocks), making tasks portable for the upcoming `mise-sync` engine.
+Provides a declarative `githooks.toml`-based hook manager and a sync engine that distributes
+patterns to subscriber repos via channel subscriptions, without requiring YAML, Node.js, or
+lefthook.
 
 ---
 
 ## Features
 
-| Tool | Role |
-|------|------|
-| [UV](https://docs.astral.sh/uv/) | Fast Python package manager + venv |
-| [Ruff](https://docs.astral.sh/ruff/) | Linter + formatter (replaces flake8, isort, black) |
-| [Ty](https://github.com/astral-sh/ty) | Type checker (Astral's next-gen checker) |
-| [pytest](https://pytest.org) | Test runner with coverage |
-| [Mise](https://mise.jdx.dev) | Tool version manager + task runner |
-| [PyInstaller](https://pyinstaller.org) | Cross-platform binary compilation |
-| [GHAS / CodeQL](https://github.com/features/security) | GitHub Advanced Security scanning |
-| [Dependabot](https://docs.github.com/en/code-security/dependabot) | Automated dependency updates |
+| Component | Role |
+|-----------|------|
+| `dev_patterns` | Python library: sync engine, hook installer, version-spec resolver |
+| `lib/python3a/` | Python 3 channel (hooks + mise tasks) |
+| `scripts/sync_patterns.sh` | Bootstrap wrapper (no package install needed) |
+| `scripts/sync_patterns.py` | Standalone sync (stdlib-only, Python 3.12+) |
+| UV | Fast Python package manager + venv |
+| Ruff | Linter + formatter |
+| Ty | Type checker |
+| pytest | Test runner with coverage |
+| Mise | Tool version manager + task runner |
+| GHAS / CodeQL | Security scanning |
 
 ---
 
-## Quick Start
+## Quick Start — Subscribing a repo
 
 ```bash
-# 1. Install mise (https://mise.jdx.dev)
-curl https://mise.run | sh
+# Bootstrap (curl the wrapper into your scripts/ dir)
+curl -sSfL \
+  https://raw.githubusercontent.com/orchestras/dev-patterns/main/scripts/sync_patterns.sh \
+  -o scripts/sync_patterns.sh && chmod +x scripts/sync_patterns.sh
 
-# 2. Clone the template and initialise
-git clone https://github.com/orchestras/python3 my-project
-cd my-project
+# Run setup (interactive: prompts for repo + channel)
+./scripts/sync_patterns.sh
 
-# 3. Full project init (installs tools, deps, configures git)
-mise run project:init
+# OR non-interactive:
+PATTERNS_REPO=orchestras/dev-patterns PATTERNS_CHANNEL=python3a \
+  ./scripts/sync_patterns.sh
 
-# 4. Run the app
-mise run run
+# After initial sync, use mise tasks:
+mise run patterns:sync       # pull latest patterns
+mise run patterns:check-hash # check if stale; auto-syncs
+```
+
+---
+
+## Channel structure
+
+```
+lib/
+ $channel/           # e.g. python3a
+    hooks/
+       githooks.toml   # declarative TOML manifest
+       pre-commit
+       commit-msg
+       pre-push
+    mise/
+        mise.toml       # channel env vars
+        tasks/
+            patterns/
+                setup
+                sync
+                subscribe
+                check-hash
+```
+
+---
+
+## Version-spec resolution (.githooks-version support)
+
+Subscriber repos can configure the channel via priority chain:
+
+1. `PATTERNS_*` env vars (`PATTERNS_REPO`, `PATTERNS_CHANNEL`, `PATTERNS_HASH`)
+2. `mise.toml [env]` keys: `GITHOOKS_REPO`, `GITHOOKS_VERSION`, `GITHOOKS_PROFILE`
+3. `.githooks-version` new format: `org/repo/channel/version`
+4. `.githooks-version` legacy format: `v0.1.12` (pulls GitHub Release tarball)
+5. Built-in defaults (`orchestras/dev-patterns`, `python3a`, `main`)
+
+Legacy `.githooks-version` (compatible with existing repos):
+
+```
+v0.1.12
+```
+
+New format:
+
+```
+orchestras/dev-patterns/python3a/v0.1.2
 ```
 
 ---
 
 ## Task Reference
 
-Run `mise tasks` to list all tasks with descriptions.
+```bash
+mise run patterns:setup      # interactive subscribe wizard
+mise run patterns:sync       # pull latest (skips if .patterns-hash is current)
+mise run patterns:subscribe  # non-interactive subscribe
+mise run patterns:check-hash # lazy hash check; auto-syncs if stale
+```
 
 ### Development
 
 ```bash
 mise run install        # uv sync --all-extras
-mise run run            # python -m python_template
+mise run run            # python -m dev_patterns
 mise run build          # sync version.py from pyproject.toml
 ```
 
@@ -58,68 +116,19 @@ mise run build          # sync version.py from pyproject.toml
 mise run lint           # ruff check src/ tests/
 mise run lint:fix       # ruff check --fix
 mise run fmt            # ruff format
-mise run fmt:check      # ruff format --check (CI safe)
+mise run fmt:check      # ruff format --check
 mise run typecheck      # ty check src/
+mise run test           # pytest
+mise run test:cov       # pytest + coverage
+mise run ci:all         # full pipeline
 ```
 
-### Testing
+### Releases
 
 ```bash
-mise run test           # pytest tests/
-mise run test:cov       # pytest + coverage report
-mise run test:watch     # pytest in watch mode (requires pytest-watch)
+mise run bump:patch     # (or :minor / :major)
+mise run tag:push       # triggers release CI
 ```
-
-### CI
-
-```bash
-mise run ci:all         # full pipeline: install → lint → fmt:check → typecheck → test:cov
-```
-
-### Version Bumping
-
-```bash
-mise run version              # show current version
-mise run bump:patch           # 0.1.5 → 0.1.6
-mise run bump:minor           # 0.1.5 → 0.2.0
-mise run bump:major           # 0.1.5 → 1.0.0
-mise run bump:prerel alpha    # 0.1.5 → 0.1.5-alpha.1
-mise run tag:push             # push tags → triggers release workflow
-```
-
-### Git & VCS
-
-```bash
-mise run git:config           # configure delta, GPG, rebase-only, hooks path
-mise run vcs:rebase           # rebase feature branch onto origin/develop
-mise run vcs:integrate        # forward-integrate feature → develop (rebase + force push)
-mise run vcs:release          # release develop → main (rebase + force push)
-mise run vcs:protect          # apply branch protection rulesets via GitHub API
-```
-
-### Security & Scanning
-
-```bash
-mise run scan:ghas            # trigger CodeQL scan via workflow dispatch
-mise run scan:deps            # audit Python deps with pip-audit
-mise run scan:secrets         # scan for leaked secrets (trufflehog/gitleaks)
-```
-
-### Git Hooks
-
-```bash
-mise run hooks:sync           # sync hooks from orchestras/git-hooks
-mise run hooks:install        # register hooks path in git config
-```
-
-### Binary Compilation
-
-```bash
-mise run compile              # PyInstaller one-file binary for current platform
-```
-
-> For cross-platform binaries, push a version tag — the [release workflow](.github/workflows/release.yml)
-> builds on Linux AMD64/ARM64, macOS ARM64/AMD64, and Windows AMD64 in parallel.
 
 ---
 
@@ -127,96 +136,40 @@ mise run compile              # PyInstaller one-file binary for current platform
 
 ```
 .
-├── .devcontainer/         # VS Code Dev Container
-├── .github/
-│   ├── workflows/         # CI/CD pipelines
-│   ├── dependabot.yml     # Dependabot config
-│   └── CODEOWNERS         # Code ownership
-├── .mise/tasks/           # All mise tasks (executable scripts)
-├── config/
-│   └── githooks/hooks/    # Git hooks (synced via hooks:sync)
-├── scripts/               # Shared bash utilities
-├── src/
-│   └── python_template/   # Main package (rename for your project)
-│       ├── __init__.py
-│       ├── __main__.py    # CLI entry point
-│       ├── version.py     # Auto-generated — do not edit
-│       └── py.typed       # PEP 561 marker
-├── tests/                 # pytest test suite
-├── AGENTS.md              # AI agent instructions
-├── CHANGELOG.md           # Changelog
-├── CONTRIBUTING.md        # Contributor guide
-├── mise.toml              # Tool versions + task discovery
-└── pyproject.toml         # Python config (Ruff, pytest, coverage, etc.)
+ .mise/tasks/
+    patterns/          # patterns:setup/sync/subscribe/check-hash
+ .github/
+    settings.yml       # Settings app config (rulesets, GHAS, etc.)
+    workflows/         # CI/CD pipelines
+ config/
+    githooks/hooks/    # Git hooks (synced via patterns:sync)
+ lib/
+    python3a/          # python3a channel
+ scripts/
+    sync_patterns.sh   # Bootstrap wrapper
+    sync_patterns.py   # Standalone sync script
+ src/
+    dev_patterns/      # Main Python package
+       commands/      # CLI commands (sync, hooks)
+       core/          # Base classes + styled Console UI
+       hooks/         # HookManifest + HookInstaller
+       sync/          # SyncEngine + GitHubClient
+       version_spec/  # VersionSpecResolver
+ tests/               # pytest test suite (85 tests, 80%+ coverage)
+ AGENTS.md            # AI agent instructions
+ CHANGELOG.md
+ mise.toml            # Tool versions + task discovery
+ pyproject.toml       # Python config (Ruff, pytest, coverage, etc.)
 ```
 
 ---
 
 ## Branch Workflow
 
-```
-feature/xyz → develop → main → tag → release
-```
-
-**No merge commits anywhere.** Every integration is a rebase.
-
-### Keep your feature branch current
+No merge commits. Every integration is a rebase.
 
 ```bash
-# On your feature branch:
-mise run vcs:rebase
-# → git pull --rebase origin develop
+mise run vcs:rebase                    # rebase feature onto develop
+mise run vcs:integrate feat/my-feature # integrate feature into develop
+mise run vcs:release                   # develop to main
 ```
-
-### Integrate a feature branch into develop
-
-```bash
-mise run vcs:integrate feat/my-feature
-# 1. Rebase feature onto origin/develop
-# 2. git checkout develop && git pull
-# 3. git rebase feat/my-feature
-# 4. git push --force-with-lease origin develop
-```
-
-### Release develop → main
-
-```bash
-mise run vcs:release
-# 1. git checkout main
-# 2. git rebase origin/develop
-# 3. git push --force-with-lease origin main
-```
-
-Then bump and tag:
-
-```bash
-mise run bump:patch   # (or :minor / :major)
-mise run tag:push     # triggers binary + Docker release CI
-```
-
----
-
-## Renaming This Template
-
-1. Replace `python_template` with your package name throughout `src/`
-2. Update `name` in `pyproject.toml`
-3. Update `project.scripts` entrypoint in `pyproject.toml`
-4. Run `mise run build` to sync `version.py`
-5. Update this README
-
----
-
-## GitHub Status Checks Setup
-
-For required status checks in branch rulesets to work:
-
-1. Push this template to GitHub (on `develop` branch)
-2. Open one PR to trigger the `pr-check` workflow — this registers the check names
-3. Run `mise run vcs:protect` to apply the ruleset via GitHub API
-4. The following checks will be required: `pr-check / lint`, `pr-check / typecheck`, `pr-check / test`, `pr-check / security`
-
----
-
-## License
-
-MIT © [ørchestras](https://github.com/orchestras)

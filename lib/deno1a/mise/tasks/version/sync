@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#MISE description="Fetch remote tags and sync deno.json version to latest semver tag"
+set -euo pipefail
+
+echo "Fetching tags from origin..."
+git fetch --tags origin
+
+tag=$(git tag -l '[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v '+' | head -n 1)
+if [ -z "$tag" ]; then
+  echo "No semver tags found — defaulting to 0.1.0"
+  tag="0.1.0"
+fi
+
+ver="${tag}"
+
+if [ ! -f "deno.json" ]; then
+  echo "No deno.json found"
+  exit 1
+fi
+
+current=$(jq -r '.version // ""' deno.json)
+if [ "${current}" = "${ver}" ]; then
+  echo "Version already ${ver} — no change"
+  exit 0
+fi
+
+tmp=$(mktemp)
+jq --arg v "${ver}" '.version = $v' deno.json > "${tmp}" && mv "${tmp}" deno.json
+echo "✓ deno.json version synced to ${ver}"

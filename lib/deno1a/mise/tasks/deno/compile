@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#MISE description="Compile a self-contained executable with deno compile"
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+NAME="$(jq -r '.name // "app"' deno.json 2>/dev/null || echo 'app')"
+ENTRY="$(jq -r '.main // "mod.ts"' deno.json 2>/dev/null || echo 'mod.ts')"
+OUT_DIR="${ROOT}/bin"
+
+mkdir -p "${OUT_DIR}"
+
+echo "Compiling ${ENTRY} → bin/${NAME}..."
+deno compile \
+  --allow-all \
+  --output "${OUT_DIR}/${NAME}" \
+  "${ENTRY}"
+
+echo "✓ Compiled → bin/${NAME}"

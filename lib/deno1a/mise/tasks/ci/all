@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#MISE description="Run the full CI pipeline: fmt-check, lint, typecheck, test with coverage"
+set -euo pipefail
+
+echo "=== CI Pipeline ==="
+
+echo ""
+echo "1/4 Format check..."
+mise run fmt:check
+
+echo ""
+echo "2/4 Lint..."
+mise run lint
+
+echo ""
+echo "3/4 Type check..."
+mise run typecheck
+
+echo ""
+echo "4/4 Tests with coverage..."
+mise run test:cov
+
+echo ""
+echo "✓ All CI checks passed"

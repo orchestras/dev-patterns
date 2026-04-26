@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Fetch and prune tags from origin"
+set -euo pipefail
+git fetch --tags --prune --prune-tags origin
+echo "✓ Tags synced"

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Auto-fix lint issues and reformat (deno lint --fix + deno fmt)"
+set -euo pipefail
+deno lint --fix || true
+deno fmt
+echo "✓ Lint fix + format applied"
