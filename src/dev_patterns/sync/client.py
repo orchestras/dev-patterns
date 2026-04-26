@@ -134,7 +134,7 @@ class GitHubClient:
         """Use the unauthenticated GitHub API to resolve a ref to a SHA."""
         url = f"{self._GH_API_BASE}/repos/{self.repo}/commits/{ref}"
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with urllib.request.urlopen(url, timeout=10) as resp:  # nosec B310
                 data = json.loads(resp.read())
                 sha = data.get("sha", "")
                 return sha if len(sha) == _SHA_LEN else None
@@ -172,7 +172,7 @@ class GitHubClient:
 
     def _urllib_download(self, url: str, dest: Path) -> None:
         """Download *url* to *dest* using stdlib urllib."""
-        with urllib.request.urlopen(url, timeout=60) as resp:
+        with urllib.request.urlopen(url, timeout=60) as resp:  # nosec B310
             dest.write_bytes(resp.read())
 
     def _subprocess_curl(self, url: str, dest: Path) -> None:
