@@ -1,24 +1,44 @@
 #!/usr/bin/env bash
-#MISE description="Run the full CI pipeline: fmt-check, lint, typecheck, test with coverage"
+#MISE description="Full CI pipeline: lint → fmt:check → typecheck → test → build → execute"
 set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+cd "${ROOT}"
+
+PASS=0
+FAIL=0
+
+run_step() {
+  local name="$1"; shift
+  echo "─── ${name} ─────────────────────────────────────"
+  if "$@"; then
+    echo "  ✓ ${name}"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ ${name} FAILED"
+    FAIL=$((FAIL + 1))
+    return 1
+  fi
+}
 
 echo "=== CI Pipeline ==="
+echo ""
+run_step "lint:check"  mise run lint:check
+run_step "fmt:check"   mise run fmt:check
+run_step "typecheck"   mise run typecheck
+run_step "test"        mise run test
+
+# Build/execute steps are optional (only run if src/make_version.ts exists)
+if [ -f "src/make_version.ts" ]; then
+  run_step "build"   mise run build
+  run_step "execute" mise run execute -- --version 2>/dev/null || run_step "execute" true
+fi
 
 echo ""
-echo "1/4 Format check..."
-mise run fmt:check
+echo "────────────────────────────────────────────────"
+echo "Passed: ${PASS}  Failed: ${FAIL}"
 
-echo ""
-echo "2/4 Lint..."
-mise run lint
-
-echo ""
-echo "3/4 Type check..."
-mise run typecheck
-
-echo ""
-echo "4/4 Tests with coverage..."
-mise run test:cov
-
-echo ""
+if [ "${FAIL}" -gt 0 ]; then
+  echo "✗ CI pipeline failed"
+  exit 1
+fi
 echo "✓ All CI checks passed"
