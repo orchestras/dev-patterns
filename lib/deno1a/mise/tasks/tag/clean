@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-#MISE description="Delete local semver tags that are not on the remote"
+#MISE description="Delete all local tags only if no tags exist on the remote"
 set -euo pipefail
-
-remote_tags=$(git ls-remote --tags origin 'refs/tags/[0-9]*' | awk '{print $2}' | sed 's|refs/tags/||')
-local_tags=$(git tag -l '[0-9]*.[0-9]*.[0-9]*')
-
-deleted=0
-while IFS= read -r tag; do
-  if ! echo "${remote_tags}" | grep -qxF "${tag}"; then
-    git tag -d "${tag}"
-    deleted=$((deleted + 1))
+echo "Fetching remote tags..."
+git fetch --tags origin
+remote_count=$(git ls-remote --tags origin 'refs/tags/v*' 2>/dev/null | grep -v '\^{}' | wc -l)
+local_tags=$(git tag -l 'v*')
+local_count=$(echo "$local_tags" | grep -c 'v' || true)
+if [ "$remote_count" -eq 0 ]; then
+  if [ "$local_count" -gt 0 ]; then
+    echo "No remote tags found. Deleting $local_count local tags..."
+    git tag -l 'v*' | xargs git tag -d
+    echo "✓ All local tags deleted"
+  else
+    echo "No local or remote tags. Nothing to do."
   fi
-done <<< "${local_tags}"
-
-echo "✓ Cleaned ${deleted} local tag(s) not on remote"
+else
+  echo "Remote has $remote_count tags — keeping local tags intact."
+fi

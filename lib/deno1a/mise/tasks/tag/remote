@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
-#MISE description="List remote semver tags"
+#MISE description="Show version tags on the remote"
 set -euo pipefail
-git ls-remote --tags origin 'refs/tags/[0-9]*' | awk '{print $2}' | sed 's|refs/tags/||' | sort -V
+echo "Remote tags:"
+git ls-remote --tags origin 'refs/tags/v*' 2>/dev/null | \
+  sed 's|.*refs/tags/||' | grep -v '\^{}' | sort -rV

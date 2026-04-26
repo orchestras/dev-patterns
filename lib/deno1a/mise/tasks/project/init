@@ -1,23 +1,37 @@
 #!/usr/bin/env bash
-#MISE description="Full project init: cache deps, git config, sync tags, install hooks"
+#MISE description="Full project init: git config, sync tags, set version, install hooks, bootstrap secrets"
 set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+cd "${ROOT}"
 
-echo "=== Project Initialisation ==="
+echo "=== Project Init ==="
+echo ""
 
-echo "1/5 Caching Deno dependencies..."
-mise run install || echo "⚠  dependency cache skipped"
+echo "→ git:config (delta, GPG, rebase-only, hooks path)"
+mise run git:config
 
-echo "2/5 Configuring local git..."
-mise run git:config || echo "⚠  git config skipped"
+echo "→ tag:sync (fetch + prune remote tags)"
+mise run tag:sync
 
-echo "3/5 Syncing tags from remote..."
-git fetch --tags origin 2>/dev/null || echo "⚠  tag sync skipped (no remote)"
+echo "→ version:init (create v0.1.0 if no remote tags)"
+mise run version:init
 
-echo "4/5 Syncing version..."
-mise run version:sync || echo "⚠  version sync skipped"
+echo "→ version:sync (align deno.json + version.ts)"
+mise run version:sync
 
-echo "5/5 Installing git hooks..."
-mise run hooks:sync || echo "⚠  hooks sync skipped"
+echo "→ hooks:sync (fetch hooks from dev-patterns)"
+mise run hooks:sync
+
+echo "→ hooks:install (register hooks path)"
+mise run hooks:install
+
+echo "→ secrets:init (bootstrap transcrypt if present)"
+mise run secrets:init 2>/dev/null || echo "  ⚠ secrets:init skipped (transcrypt not configured)"
 
 echo ""
-echo "✓ Project initialised. Run 'mise tasks' for all available tasks."
+echo "✓ Project initialised."
+echo ""
+echo "  mise tasks                   — list all available tasks"
+echo "  mise run ci:all              — run full pipeline"
+echo "  mise run completions         — install shell tab-completions"
+echo "  mise run dispatch:configure  — apply GitHub repo settings + rulesets"
