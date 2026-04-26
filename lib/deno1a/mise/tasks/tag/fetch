@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-#MISE description="Fetch all tags from origin"
+#MISE description="Fetch all tags from remote into local"
 set -euo pipefail
 git fetch --tags origin
-echo "✓ Tags fetched"
+echo "✓ Tags fetched from origin"
+git tag -l 'v*' --sort=-v:refname

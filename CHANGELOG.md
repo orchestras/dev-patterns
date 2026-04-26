@@ -7,7 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added — deno1a channel
+### Changed — deno1a channel catch-up (sync with orchestras/deno template)
+
+- **`bump:patch/minor/major/prerel`** — switched to `v`-prefixed tags (`v0.1.0` not `0.1.0`);
+  tasks now also regenerate `src/version.ts` via `deno run src/make_version.ts` when present
+- **`deno:compile`** — upgraded to cross-platform multi-target compilation (darwin-arm64,
+  darwin-amd64, linux-amd64, linux-arm64, windows-amd64) outputting to `./bin/`
+- **`ci:all`** — restructured as a step-runner (lint → fmt:check → typecheck → test → build →
+  execute); reports pass/fail counts; `build` and `execute` steps are skipped when
+  `src/make_version.ts` is absent
+- **`install`** — updated default entry point fallback to `src/mod.ts`
+- **`typecheck`** — updated default entry point fallback to `src/mod.ts`
+- **`run`** — updated default entry point fallback to `src/mod.ts`
+- **`project:init`** — adds `dispatch:configure` hint; calls `secrets:init` gracefully
+- **`vcs:protect`** — full per-branch ruleset implementation (Restrictions: All Branches,
+  Protection: develop, Protection: main) with idempotent delete-then-create; creates `develop`
+  branch if absent; separate required-status-checks per branch
+- **`version:init`** — uses `v`-prefixed tags (`v0.1.0`)
+- **`version:sync`** — uses `v`-prefixed tag pattern; regenerates `src/version.ts` when present
+- **`tag:clean`** — updated to use `v*` tag glob (v-prefix)
+- **`tag:create`** — auto-prefixes `v` if version from `deno.json` lacks it
+- **`tag:_default` / `tag:fetch` / `tag:remote`** — updated to `v*` tag glob
+- **`scan:sast`** — added `eval()` and hardcoded-secret heuristic scans targeting `src/`
+- **`test`** — added `--reporter=pretty` and optional `--filter` argument
+- **`gh:token`** — expanded output with token-management advice
+- **`hooks:install`** — added `ls -la` listing of installed hooks on success
+
+### Added — deno1a channel (new tasks)
+
+- **`build`** — regenerates `src/version.ts` from `deno.json` version via `src/make_version.ts`
+- **`execute`** — runs the app entry point (`deno run --allow-all src/mod.ts`)
+- **`completions`** — installs mise shell completions for bash/zsh/fish (interactive)
+- **`dispatch:autobump`** — triggers `dispatch-autobump-release.yml` workflow via `gh workflow run`
+- **`dispatch:configure`** — triggers `dispatch-autoconfigure-rulesets.yml` workflow
+- **`dispatch:ghas`** — triggers `ghas-scan.yml` workflow
+- **`npm:set-registry`** — configures NPM to use Artifactory (RT_URL/RT_USER/RT_KEY)
+- **`npm:reset-registry`** — resets NPM registry to npmjs.org
+- **`scan:complexity`** — cyclomatic complexity analysis via `deno lint` + function-length
+  heuristic; thresholds configurable via CCN/MAX\_LINES/MAX\_ARGS env vars
+- **`tag:list`** — lists local `v*` semver tags
+- **`lint:check`** — canonical `lint:check` alias (used by CI pipeline and pre-push hook)
+- **`fmt:fix`** — explicit `fmt:fix` alias for `deno fmt` (deno template convention)
+- **`version:show`** — prints current version from `deno.json`
+
+### Added — deno1a channel (initial)
 
 - **`/lib/deno1a/` channel directory** — patterns subscription for Deno projects:
   - `hooks/` — git hook scripts (`pre-commit`, `commit-msg`, `pre-push`) with `githooks.toml`
@@ -19,7 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `ci:all`, `bump:patch/minor/major/prerel`, `tag/*`, `version/*`, `vcs/*`, `hooks/*`,
     `git:config`, `project:init`, `scan:deps/sast/ghas`, `secrets/*`, `patterns/*`
   - `scripts/` — `semver.sh`, `colors.sh`, `sync_patterns.sh` synced to consumer repo
-- **No `v` prefix on release tags** — Deno channel uses bare semver tags (`0.1.0` not `v0.1.0`)
 - **Version stored in `deno.json`** — `bump:*` tasks update `.version` in `deno.json` via `jq`
 - **Native TLS** — `DENO_TLS_CA_STORE = "system,mozilla"` set in channel `mise.toml`
 

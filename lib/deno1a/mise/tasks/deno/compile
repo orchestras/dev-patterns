@@ -1,18 +1,31 @@
 #!/usr/bin/env bash
-#MISE description="Compile a self-contained executable with deno compile"
+#MISE description="Cross-compile binaries for all supported platforms to ./bin/"
 set -euo pipefail
 
-ROOT="$(git rev-parse --show-toplevel)"
-NAME="$(jq -r '.name // "app"' deno.json 2>/dev/null || echo 'app')"
-ENTRY="$(jq -r '.main // "mod.ts"' deno.json 2>/dev/null || echo 'mod.ts')"
-OUT_DIR="${ROOT}/bin"
+ENTRY="$(jq -r '.main // "src/mod.ts"' deno.json 2>/dev/null || echo 'src/mod.ts')"
+NAME="$(jq -r '.name // "orchestras"' deno.json | sed 's|.*/||')"
+VERSION="$(jq -r '.version' deno.json)"
 
-mkdir -p "${OUT_DIR}"
+mkdir -p bin
 
-echo "Compiling ${ENTRY} → bin/${NAME}..."
-deno compile \
-  --allow-all \
-  --output "${OUT_DIR}/${NAME}" \
-  "${ENTRY}"
+TARGETS=(
+  "aarch64-apple-darwin:darwin-arm64:"
+  "x86_64-apple-darwin:darwin-amd64:"
+  "x86_64-unknown-linux-gnu:linux-amd64:"
+  "aarch64-unknown-linux-gnu:linux-arm64:"
+  "x86_64-pc-windows-msvc:windows-amd64:.exe"
+)
 
-echo "✓ Compiled → bin/${NAME}"
+echo "Compiling ${NAME} ${VERSION}..."
+echo ""
+
+for entry in "${TARGETS[@]}"; do
+  IFS=':' read -r target suffix ext <<< "${entry}"
+  out="bin/${NAME}-${suffix}${ext}"
+  echo "  → ${target}"
+  deno compile --allow-all --no-check --target="${target}" --output="${out}" "${ENTRY}"
+done
+
+echo ""
+echo "✓ Binaries compiled to ./bin/"
+ls -lh bin/

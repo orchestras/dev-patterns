@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 #MISE description="List all local semver tags"
 set -euo pipefail
-git tag -l '[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -20
+git tag -l 'v*' --sort=-v:refname | head -20
