@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Trigger GHAS CodeQL scan workflow via GitHub Actions"
+set -euo pipefail
+
+if ! gh auth status &>/dev/null; then
+  echo "ERROR: gh CLI is not authenticated. Run: gh auth login"
+  exit 1
+fi
+
+gh workflow run ghas-scan.yml
+echo "✓ GHAS scan triggered — check Actions tab for results"

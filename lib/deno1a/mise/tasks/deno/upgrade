@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Upgrade all deno.json dependencies to their latest versions"
+set -euo pipefail
+
+echo "Upgrading Deno dependencies..."
+deno outdated --update --latest
+echo "✓ Dependencies upgraded — review deno.json and deno.lock"

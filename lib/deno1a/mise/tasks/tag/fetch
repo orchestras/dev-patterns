@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Fetch all tags from origin"
+set -euo pipefail
+git fetch --tags origin
+echo "✓ Tags fetched"

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#MISE description="Full project init: cache deps, git config, sync tags, install hooks"
+set -euo pipefail
+
+echo "=== Project Initialisation ==="
+
+echo "1/5 Caching Deno dependencies..."
+mise run install || echo "⚠  dependency cache skipped"
+
+echo "2/5 Configuring local git..."
+mise run git:config || echo "⚠  git config skipped"
+
+echo "3/5 Syncing tags from remote..."
+git fetch --tags origin 2>/dev/null || echo "⚠  tag sync skipped (no remote)"
+
+echo "4/5 Syncing version..."
+mise run version:sync || echo "⚠  version sync skipped"
+
+echo "5/5 Installing git hooks..."
+mise run hooks:sync || echo "⚠  hooks sync skipped"
+
+echo ""
+echo "✓ Project initialised. Run 'mise tasks' for all available tasks."
