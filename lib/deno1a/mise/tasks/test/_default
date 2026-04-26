@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run the full test suite with deno test"
+set -euo pipefail
+deno test --allow-all
+echo "✓ Tests passed"

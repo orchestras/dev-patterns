@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#MISE description="Create a git tag from current deno.json version (does not push)"
+set -euo pipefail
+
+if [ ! -f "deno.json" ]; then
+  echo "No deno.json found"
+  exit 1
+fi
+
+version=$(jq -r '.version // "0.1.0"' deno.json)
+tag="${version}"
+git tag -l | grep -qx "${tag}" && { echo "Tag ${tag} already exists."; exit 0; }
+git tag -a "${tag}" -m "${tag}"
+echo "✓ Tag ${tag} created. Run 'mise run tag:push' to push."

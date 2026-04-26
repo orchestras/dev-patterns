@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Lint all source files with deno lint"
+set -euo pipefail
+deno lint
+echo "✓ Lint passed"

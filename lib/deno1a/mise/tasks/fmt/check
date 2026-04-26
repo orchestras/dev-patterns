@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Check formatting without modifying files (deno fmt --check)"
+set -euo pipefail
+deno fmt --check
+echo "✓ Format check passed"
