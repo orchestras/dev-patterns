@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+#MISE description="Push newer local skel/tasks/hooks/scripts back to dev-patterns in a PR branch"
+# Only files listed under [skel] files in mise.toml are candidates.
+# A file is uploaded only when its SHA-256 hash differs from the corresponding
+# lib/$channel/skel/ file in dev-patterns (i.e. the local copy is newer/modified).
+#
+# The resulting PR is opened against dev-patterns on a branch named:
+#   chore/up-<YYYY-MM-DD>-<repo-slug>
+#
+# Usage:
+#   mise run sync:up
+#   SYNC_DRY_RUN=true mise run sync:up    — print what would change, no PR
+set -euo pipefail
+
+# ── Terminal colours ──────────────────────────────────────────────────────────
+CYAN='\033[0;36m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
+CHECK="✓"; ARROW="→"; SPIN="⟳"
+
+ROOT="$(git rev-parse --show-toplevel)"
+PATTERNS_REPO="${PATTERNS_REPO:-orchestras/dev-patterns}"
+PATTERNS_CHANNEL="${PATTERNS_CHANNEL:-deno1a}"
+DRY_RUN="${SYNC_DRY_RUN:-false}"
+DATE=$(date +%Y-%m-%d)
+CACHE_DIR="${ROOT}/.mise/.patterns-cache"
+RESULT_FILE="${ROOT}/.sync-up-result"
+
+echo -e "${CYAN}${BOLD}Patterns Sync Up${RESET}"
+echo -e "  ${BLUE}${ARROW}${RESET} Target repo:    ${PATTERNS_REPO}"
+echo -e "  ${BLUE}${ARROW}${RESET} Target channel: ${PATTERNS_CHANNEL}"
+echo ""
+
+if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null 2>&1; then
+  echo -e "${YELLOW}⚠  gh CLI is required and must be authenticated for sync:up.${RESET}"
+  echo "  Run: gh auth login"
+  exit 1
+fi
+
+REPO_SLUG=$(gh repo view --json nameWithOwner -q '.nameWithOwner' | sed 's|/|-|g')
+BRANCH="chore/up-${DATE}-${REPO_SLUG}"
+
+# ── Fetch skel file list from mise.toml [skel] ────────────────────────────────
+SKEL_FILES=()
+if [ -f "${ROOT}/mise.toml" ]; then
+  in_skel=false
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^\[skel\] ]]; then in_skel=true; continue; fi
+    if [[ "$in_skel" = true ]]; then
+      [[ "$line" =~ ^\[ ]] && break
+      if [[ "$line" =~ \"([^\"]+)\" ]]; then
+        SKEL_FILES+=("${BASH_REMATCH[1]}")
+      fi
+    fi
+  done < "${ROOT}/mise.toml"
+fi
+
+if [ ${#SKEL_FILES[@]} -eq 0 ]; then
+  echo -e "  ${YELLOW}⚠  No [skel] files listed in mise.toml — nothing to upload.${RESET}"
+  exit 0
+fi
+
+# ── Fetch current dev-patterns tarball for comparison ────────────────────────
+echo -e "  ${SPIN} Fetching current dev-patterns ${PATTERNS_CHANNEL} channel…"
+mkdir -p "${CACHE_DIR}"
+LATEST_HASH=$(gh api "repos/${PATTERNS_REPO}/commits/main" --jq '.sha' 2>/dev/null || echo "unknown")
+TARBALL="${CACHE_DIR}/patterns-up-${LATEST_HASH:0:8}.tar.gz"
+
+gh api "repos/${PATTERNS_REPO}/tarball/main" \
+  --header "Accept: application/vnd.github+json" \
+  > "${TARBALL}" 2>/dev/null || \
+curl -sSfL "https://github.com/${PATTERNS_REPO}/archive/main.tar.gz" \
+  -o "${TARBALL}"
+
+EXTRACT_DIR="${CACHE_DIR}/extracted-up-${LATEST_HASH:0:8}"
+rm -rf "${EXTRACT_DIR}"
+mkdir -p "${EXTRACT_DIR}"
+tar -xzf "${TARBALL}" -C "${EXTRACT_DIR}" --strip-components=1
+
+SKEL_DIR="${EXTRACT_DIR}/lib/${PATTERNS_CHANNEL}/skel"
+
+# ── Identify files that differ ───────────────────────────────────────────────
+CHANGED_FILES=()
+for rel_path in "${SKEL_FILES[@]}"; do
+  local_file="${ROOT}/${rel_path}"
+  remote_file="${SKEL_DIR}/${rel_path}"
+
+  [ ! -f "${local_file}" ] && continue
+
+  if [ ! -f "${remote_file}" ]; then
+    CHANGED_FILES+=("${rel_path}")
+    echo -e "  ${ARROW} ${rel_path} ${YELLOW}(new — not in dev-patterns skel)${RESET}"
+  else
+    local_hash=$(sha256sum < "${local_file}" | cut -d' ' -f1)
+    remote_hash=$(sha256sum < "${remote_file}" | cut -d' ' -f1)
+    if [ "${local_hash}" != "${remote_hash}" ]; then
+      CHANGED_FILES+=("${rel_path}")
+      echo -e "  ${ARROW} ${rel_path} ${BLUE}(modified)${RESET}"
+    fi
+  fi
+done
+
+if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
+  echo -e "  ${GREEN}${CHECK} All skel files match dev-patterns — nothing to upload${RESET}"
+  echo "✓ All skel files current — nothing to upload" > "${RESULT_FILE}"
+  exit 0
+fi
+
+echo ""
+echo -e "  ${#CHANGED_FILES[@]} file(s) will be uploaded to ${PATTERNS_REPO}/lib/${PATTERNS_CHANNEL}/skel/"
+
+if [ "${DRY_RUN}" = "true" ]; then
+  echo -e "${YELLOW}DRY RUN — no branch created, no PR opened${RESET}"
+  { echo "## Dry Run: Sync Up"; echo ""; echo "Would upload ${#CHANGED_FILES[@]} file(s) to \`${PATTERNS_REPO}\`:"; echo ""; for f in "${CHANGED_FILES[@]}"; do echo "- \`lib/${PATTERNS_CHANNEL}/skel/${f}\`"; done; } > "${RESULT_FILE}"
+  exit 0
+fi
+
+# ── Clone dev-patterns into a temp dir and create the PR branch ──────────────
+echo ""
+echo -e "  ${SPIN} Cloning ${PATTERNS_REPO} for branch operations…"
+TMP_CLONE=$(mktemp -d)
+trap 'rm -rf "${TMP_CLONE}"' EXIT
+
+gh repo clone "${PATTERNS_REPO}" "${TMP_CLONE}" -- --depth=1 --branch=main 2>/dev/null || \
+  git clone "https://github.com/${PATTERNS_REPO}.git" "${TMP_CLONE}" --depth=1 --branch=main
+
+cd "${TMP_CLONE}"
+git config user.name  "github-actions[bot]"
+git config user.email "github-actions[bot]@users.noreply.github.com"
+
+# Check if a sync-up branch already exists
+existing_pr=$(gh pr list --repo "${PATTERNS_REPO}" --head "${BRANCH}" --state open \
+  --json number -q '.[0].number' 2>/dev/null || echo "")
+if [ -n "${existing_pr}" ]; then
+  echo -e "  ${YELLOW}⚠  PR #${existing_pr} already open for ${BRANCH} in ${PATTERNS_REPO} — skipping${RESET}"
+  exit 0
+fi
+
+git checkout -b "${BRANCH}"
+
+DEST_SKEL="${TMP_CLONE}/lib/${PATTERNS_CHANNEL}/skel"
+for rel_path in "${CHANGED_FILES[@]}"; do
+  local_file="${ROOT}/${rel_path}"
+  dest="${DEST_SKEL}/${rel_path}"
+  mkdir -p "$(dirname "${dest}")"
+  cp "${local_file}" "${dest}"
+  git add "${dest}"
+  echo -e "  ${GREEN}${CHECK}${RESET} lib/${PATTERNS_CHANNEL}/skel/${rel_path}"
+done
+
+ORIGIN_REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "${REPO_SLUG}")
+
+git commit -m "chore(${PATTERNS_CHANNEL}): sync up skel files from ${ORIGIN_REPO} (${DATE})
+
+Updated ${#CHANGED_FILES[@]} file(s) from ${ORIGIN_REPO}:
+$(for f in "${CHANGED_FILES[@]}"; do echo "  - ${f}"; done)"
+
+git push "https://x-access-token:$(gh auth token)@github.com/${PATTERNS_REPO}.git" \
+  "${BRANCH}:${BRANCH}"
+
+PR_BODY="## Sync Up from ${ORIGIN_REPO}
+
+Files newer than their \`lib/${PATTERNS_CHANNEL}/skel/\` counterparts in this repo,
+pushed from \`${ORIGIN_REPO}\` on ${DATE}.
+
+### Changed files
+
+$(for f in "${CHANGED_FILES[@]}"; do echo "- \`lib/${PATTERNS_CHANNEL}/skel/${f}\`"; done)
+
+### Review checklist
+
+- [ ] Verify changes are intentional improvements (not project-specific deviations)
+- [ ] Check that \`{{ skel.var }}\` template tokens are preserved where needed
+- [ ] Run \`mise run ci:all\` to verify the channel remains consistent"
+
+gh pr create \
+  --repo "${PATTERNS_REPO}" \
+  --title "chore(${PATTERNS_CHANNEL}): sync up skel from ${ORIGIN_REPO} (${DATE})" \
+  --body "${PR_BODY}" \
+  --base main \
+  --head "${BRANCH}" \
+  --draft
+
+PR_URL=$(gh pr list --repo "${PATTERNS_REPO}" --head "${BRANCH}" --state open \
+  --json url -q '.[0].url' 2>/dev/null || echo "")
+echo ""
+echo -e "${GREEN}${BOLD}${CHECK} Sync up PR created in ${PATTERNS_REPO}: ${PR_URL}${RESET}"
+
+{ echo "## Sync Up Complete"; echo ""; echo "Uploaded \`${#CHANGED_FILES[@]}\` file(s) to \`${PATTERNS_REPO}/lib/${PATTERNS_CHANNEL}/skel/\`"; echo ""; echo "PR: ${PR_URL}"; } > "${RESULT_FILE}"

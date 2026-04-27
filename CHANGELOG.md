@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — deno1a channel skel system + sync tasks
+
+- **`lib/deno1a/skel/`** — new skeleton directory: files pushed to subscriber repos via
+  `patterns:sync` with `{{ skel.var }}` Jinja-style token interpolation. Initial contents:
+  - `README.md` — corrected quickstart (`mise run execute` not `mise run run`); full task
+    reference including `sync:down`, `sync:up`
+  - `AGENTS.md` — complete agent instructions with correct task names
+  - `.github/CODEOWNERS` — `{{ skel.codeowners }}` placeholder
+  - `.github/PULL_REQUEST_TEMPLATE.md` — references `mise run ci` and `mise run vcs:rebase`
+  - `.github/workflows/ci.yml` — sequential CI pipeline workflow
+  - `.github/workflows/pr-check.yml` — parallel PR check jobs (lint/typecheck/test/security)
+  - `.github/workflows/dispatch-sync-down.yml` — workflow to pull updated skel files
+  - `.github/workflows/dispatch-sync-up.yml` — workflow to push local changes to dev-patterns
+  - `mise.toml` — canonical mise.toml template with `[skel]` file registry and `[skel.vars]`
+- **`lib/deno1a/mise/mise.toml` `[skel]` section** — declares managed skel files and default
+  `[skel.vars]` (subscriber repos override in their own `mise.toml`)
+- **`mise run sync:down`** (`lib/deno1a/mise/tasks/sync/down`) — pulls updated skel files from
+  dev-patterns with `{{ skel.var }}` Jinja interpolation; in CI (`CI=true`) creates a
+  `feature/sync-down-<date>` branch and opens a draft PR; locally prompts before writing
+- **`mise run sync:up`** (`lib/deno1a/mise/tasks/sync/up`) — compares local skel files against
+  dev-patterns via SHA-256; uploads only files listed in `[skel]` that differ; clones
+  dev-patterns, creates `chore/up-<date>-<repo>` branch, and opens a draft PR
+- **`patterns:sync`** — extended to also sync `skel/` files with Jinja interpolation after
+  syncing tasks and hooks; `skel` directory is excluded from the legacy top-level copy loop
+
 ### Changed — deno1a channel catch-up (sync with orchestras/deno template)
 
 - **`bump:patch/minor/major/prerel`** — switched to `v`-prefixed tags (`v0.1.0` not `0.1.0`);

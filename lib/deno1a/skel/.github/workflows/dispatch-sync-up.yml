@@ -1,0 +1,57 @@
+name: "Dispatch: Sync Up to dev-patterns"
+
+# Pushes newer local files back to orchestras/dev-patterns lib/deno1a/skel/
+# as a chore branch + draft PR in the dev-patterns repo.
+#
+# Only files listed under [skel] in mise.toml are candidates.
+# A file is uploaded only when it is newer (mtime or content-hash) than the
+# corresponding skel file in dev-patterns.
+#
+# The resulting PR in dev-patterns is titled:
+#   chore(deno1a): sync up from <repo> <date>
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — show what would be uploaded without creating a PR"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync-up:
+    name: "Sync up to dev-patterns"
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PATTERNS_REPO: "orchestras/dev-patterns"
+      PATTERNS_CHANNEL: "deno1a"
+
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+        with:
+          experimental: true
+
+      - name: Run sync:up
+        env:
+          SYNC_DRY_RUN: ${{ inputs.dry_run }}
+        run: mise run sync:up
+
+      - name: Summary
+        run: |
+          if [ -f ".sync-up-result" ]; then
+            cat ".sync-up-result" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "✓ sync:up completed" >> "$GITHUB_STEP_SUMMARY"
+          fi
