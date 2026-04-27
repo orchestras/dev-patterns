@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Sync tasks and hooks from the patterns channel (dev-patterns repo)"
+#MISE description="Sync tasks, hooks, and skel files from the patterns channel (dev-patterns repo)"
 set -euo pipefail
 
 # ── Terminal colours ──────────────────────────────────────────────────────────
@@ -72,8 +72,7 @@ if [ ! -d "${CHANNEL_DIR}" ]; then
   exit 1
 fi
 
-# ── Sync everything under lib/$channel/ ──────────────────────────────────────
-# Tasks
+# ── Sync mise tasks ───────────────────────────────────────────────────────────
 if [ -d "${CHANNEL_DIR}/mise/tasks" ]; then
   echo -e "  ${SPIN} Syncing mise tasks…"
   mkdir -p "${ROOT}/.mise/tasks"
@@ -82,21 +81,109 @@ if [ -d "${CHANNEL_DIR}/mise/tasks" ]; then
   echo -e "  ${GREEN}${CHECK} Tasks synced → .mise/tasks/${RESET}"
 fi
 
-# Hooks
+# ── Sync git hooks ────────────────────────────────────────────────────────────
 if [ -d "${CHANNEL_DIR}/hooks" ]; then
   echo -e "  ${SPIN} Syncing git hooks…"
   mkdir -p "${ROOT}/config/githooks/hooks"
-  # Copy everything except githooks.toml manifest (keep that too, for reference)
   cp -r "${CHANNEL_DIR}/hooks/." "${ROOT}/config/githooks/hooks/"
   find "${ROOT}/config/githooks/hooks" -type f ! -name "*.toml" -exec chmod +x {} \;
   echo -e "  ${GREEN}${CHECK} Hooks synced → config/githooks/hooks/${RESET}"
 fi
 
-# Any other top-level items (scripts, configs, etc.)
+# ── Sync skel files (with Jinja interpolation) ────────────────────────────────
+SKEL_DIR="${CHANNEL_DIR}/skel"
+if [ -d "${SKEL_DIR}" ]; then
+  echo -e "  ${SPIN} Syncing skel files…"
+
+  # Load skel.vars from the subscriber's mise.toml
+  declare -A SKEL_VARS
+  if [ -f "${ROOT}/mise.toml" ]; then
+    in_skel_vars=false
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^\[skel\.vars\] ]]; then
+        in_skel_vars=true; continue
+      fi
+      if [[ "$in_skel_vars" = true ]]; then
+        [[ "$line" =~ ^\[ ]] && break
+        if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*=[[:space:]]*\"(.*)\"$ ]]; then
+          SKEL_VARS["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
+        fi
+      fi
+    done < "${ROOT}/mise.toml"
+  fi
+
+  # Also load channel-default vars (do not overwrite subscriber values)
+  CHANNEL_MISE="${CHANNEL_DIR}/mise/mise.toml"
+  if [ -f "${CHANNEL_MISE}" ]; then
+    in_skel_vars=false
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^\[skel\.vars\] ]]; then
+        in_skel_vars=true; continue
+      fi
+      if [[ "$in_skel_vars" = true ]]; then
+        [[ "$line" =~ ^\[ ]] && break
+        if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*=[[:space:]]*\"(.*)\"$ ]]; then
+          key="${BASH_REMATCH[1]}"
+          # Subscriber value takes precedence
+          [[ -v SKEL_VARS["${key}"] ]] || SKEL_VARS["${key}"]="${BASH_REMATCH[2]}"
+        fi
+      fi
+    done < "${CHANNEL_MISE}"
+  fi
+
+  # Interpolate {{ skel.key }} tokens in a file
+  interpolate_file() {
+    local src="$1"
+    local content
+    content=$(cat "${src}")
+    for key in "${!SKEL_VARS[@]}"; do
+      local val="${SKEL_VARS[$key]}"
+      local escaped_val
+      escaped_val=$(printf '%s\n' "${val}" | sed 's/[&/\]/\\&/g; s/$/\\n/' | tr -d '\n' | sed 's/\\n$//')
+      content=$(echo "${content}" | sed "s|{{ skel\\.${key} }}|${escaped_val}|g")
+    done
+    if echo "${content}" | grep -q '{{ skel\.'; then
+      remaining=$(echo "${content}" | grep -o '{{ skel\.[^}]* }}' | sort -u | tr '\n' ' ')
+      echo -e "  ${YELLOW}⚠  Unresolved skel vars: ${remaining}${RESET}" >&2
+    fi
+    printf '%s' "${content}"
+  }
+
+  # Read skel file list from subscriber's mise.toml (or channel default)
+  SKEL_FILES=()
+  for toml_src in "${ROOT}/mise.toml" "${CHANNEL_MISE}"; do
+    [ -f "${toml_src}" ] || continue
+    in_skel=false
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^\[skel\] ]]; then in_skel=true; continue; fi
+      if [[ "$in_skel" = true ]]; then
+        [[ "$line" =~ ^\[ ]] && break
+        if [[ "$line" =~ files && "$line" =~ \[ ]]; then continue; fi
+        if [[ "$line" =~ \"([^\"]+)\" ]]; then
+          SKEL_FILES+=("${BASH_REMATCH[1]}")
+        fi
+      fi
+    done < "${toml_src}"
+    [ ${#SKEL_FILES[@]} -gt 0 ] && break
+  done
+
+  synced_count=0
+  for rel_path in "${SKEL_FILES[@]}"; do
+    src="${SKEL_DIR}/${rel_path}"
+    dst="${ROOT}/${rel_path}"
+    [ ! -f "${src}" ] && continue
+    mkdir -p "$(dirname "${dst}")"
+    interpolate_file "${src}" > "${dst}"
+    echo -e "  ${GREEN}${CHECK}${RESET} ${rel_path}"
+    synced_count=$((synced_count + 1))
+  done
+  echo -e "  ${GREEN}${CHECK} Skel synced (${synced_count} file(s)) → project root${RESET}"
+fi
+
+# ── Sync any other top-level channel items (scripts, etc.) ───────────────────
 for item in "${CHANNEL_DIR}"/*; do
   base=$(basename "${item}")
-  # Skip already-handled dirs
-  [[ "${base}" == "mise" || "${base}" == "hooks" ]] && continue
+  [[ "${base}" == "mise" || "${base}" == "hooks" || "${base}" == "skel" ]] && continue
   dest="${ROOT}/${base}"
   if [ -d "${item}" ]; then
     mkdir -p "${dest}"

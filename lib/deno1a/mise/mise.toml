@@ -1,18 +1,17 @@
 # lib/deno1a/mise/mise.toml — Channel mise task configuration
 #
-# This file is SYNCED into the target repo's mise.toml [env] section
-# by `mise run patterns:sync`.  It declares env vars and task directories
-# that this channel contributes.
-#
 # When patterns:sync runs it:
 #   1. Copies all tasks from lib/$channel/mise/tasks/ → .mise/tasks/
-#   2. Merges env vars below into the target repo's mise.toml [env] section
-#   3. Writes the current commit hash to .patterns-hash
+#   2. Copies hooks from lib/$channel/hooks/ → config/githooks/hooks/
+#   3. Copies skel files from lib/$channel/skel/ → project root
+#      (with {{ skel.var }} Jinja interpolation from [skel.vars] in the
+#       subscriber's mise.toml)
+#   4. Writes the current commit hash to .patterns-hash
 
 [channel]
 name        = "deno1a"
 description = "Deno project (Deno + Mise) patterns channel"
-version     = "0.1.0"
+version     = "0.2.0"
 
 [tools]
 deno  = "latest"
@@ -33,3 +32,31 @@ DENO_TLS_CA_STORE = "system,mozilla"
 
 # Deno cache location (conventional; can be overridden)
 DENO_DIR = "{{config_root}}/.deno-cache"
+
+# ─── Skeleton file registry ───────────────────────────────────────────────────
+# Files listed here are managed by patterns:sync (sync:down) and can be
+# pushed back to dev-patterns with sync:up. A file is uploaded by sync:up
+# only when it differs from the corresponding lib/deno1a/skel/ counterpart.
+# Subscriber repos override [skel.vars] to interpolate {{ skel.var }} tokens.
+[skel]
+files = [
+  "README.md",
+  "AGENTS.md",
+  ".github/CODEOWNERS",
+  ".github/PULL_REQUEST_TEMPLATE.md",
+  ".github/workflows/ci.yml",
+  ".github/workflows/pr-check.yml",
+  ".github/workflows/dispatch-sync-down.yml",
+  ".github/workflows/dispatch-sync-up.yml",
+  "mise.toml",
+]
+
+# Default skel variable values — subscriber repos override these in their
+# own mise.toml under [skel.vars].
+[skel.vars]
+project_name   = "orchestras/deno"
+project_description = "Deno TypeScript project"
+github_org     = "orchestras"
+repo_name      = "deno"
+deno_version   = "2.0.2"
+codeowners     = "@org/team"

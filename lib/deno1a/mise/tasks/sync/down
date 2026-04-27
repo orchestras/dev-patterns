@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+#MISE description="Pull updated skel files from dev-patterns channel into a feature PR branch"
+# In CI (CI=true): creates branch feature/sync-down-<date> and opens a draft PR.
+# Locally: applies skel files directly to working tree (after confirmation).
+#
+# Skel variables are resolved from [skel.vars] in mise.toml via Jinja2 interpolation.
+# Any {{ skel.var }} token in a skel file is replaced before writing to disk.
+#
+# Usage:
+#   mise run sync:down               — check hash, sync if stale
+#   SYNC_FORCE=true mise run sync:down — force sync even if hash matches
+#   SYNC_DRY_RUN=true mise run sync:down — print what would change, no writes
+set -euo pipefail
+
+# ── Terminal colours ──────────────────────────────────────────────────────────
+CYAN='\033[0;36m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
+CHECK="✓"; ARROW="→"; SPIN="⟳"
+
+ROOT="$(git rev-parse --show-toplevel)"
+PATTERNS_REPO="${PATTERNS_REPO:-orchestras/dev-patterns}"
+PATTERNS_CHANNEL="${PATTERNS_CHANNEL:-deno1a}"
+HASH_FILE="${ROOT}/.patterns-hash"
+CACHE_DIR="${ROOT}/.mise/.patterns-cache"
+IS_CI="${CI:-false}"
+FORCE="${SYNC_FORCE:-false}"
+DRY_RUN="${SYNC_DRY_RUN:-false}"
+DATE=$(date +%Y-%m-%d)
+BRANCH="feature/sync-down-${DATE}"
+RESULT_FILE="${ROOT}/.sync-down-result"
+
+echo -e "${CYAN}${BOLD}Patterns Sync Down${RESET}"
+echo -e "  ${BLUE}${ARROW}${RESET} Repo:    ${PATTERNS_REPO}"
+echo -e "  ${BLUE}${ARROW}${RESET} Channel: ${PATTERNS_CHANNEL}"
+echo -e "  ${BLUE}${ARROW}${RESET} CI mode: ${IS_CI}"
+echo ""
+
+# ── Load skel vars from mise.toml [skel.vars] ────────────────────────────────
+# Reads lines like: key = "value" under [skel.vars] in mise.toml
+declare -A SKEL_VARS
+if [ -f "${ROOT}/mise.toml" ]; then
+  in_skel_vars=false
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^\[skel\.vars\] ]]; then
+      in_skel_vars=true; continue
+    fi
+    if [[ "$in_skel_vars" = true ]]; then
+      [[ "$line" =~ ^\[ ]] && break
+      if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*=[[:space:]]*\"(.*)\"$ ]]; then
+        SKEL_VARS["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
+      fi
+    fi
+  done < "${ROOT}/mise.toml"
+fi
+
+# ── Fetch skel file list from mise.toml [skel] ────────────────────────────────
+SKEL_FILES=()
+if [ -f "${ROOT}/mise.toml" ]; then
+  in_skel=false
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^\[skel\] ]]; then in_skel=true; continue; fi
+    if [[ "$in_skel" = true ]]; then
+      [[ "$line" =~ ^\[ ]] && break
+      if [[ "$line" =~ \"([^\"]+)\" ]]; then
+        SKEL_FILES+=("${BASH_REMATCH[1]}")
+      fi
+    fi
+  done < "${ROOT}/mise.toml"
+fi
+
+if [ ${#SKEL_FILES[@]} -eq 0 ]; then
+  echo -e "  ${YELLOW}⚠  No [skel] files listed in mise.toml — nothing to sync.${RESET}"
+  exit 0
+fi
+
+# ── Fetch latest commit hash ──────────────────────────────────────────────────
+echo -e "  ${SPIN} Fetching latest commit hash…"
+latest_hash=""
+if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
+  latest_hash=$(gh api "repos/${PATTERNS_REPO}/commits/main" \
+    --jq '.sha' 2>/dev/null || echo "")
+fi
+if [ -z "${latest_hash}" ]; then
+  latest_hash=$(curl -sSf \
+    "https://api.github.com/repos/${PATTERNS_REPO}/commits/main" \
+    2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['sha'])" \
+    2>/dev/null || echo "")
+fi
+if [ -z "${latest_hash}" ]; then
+  echo -e "  ${YELLOW}⚠  Could not fetch commit hash. Skipping sync.${RESET}"
+  exit 0
+fi
+
+# ── Skip if already current (unless forced) ──────────────────────────────────
+cached_hash=""
+[ -f "${HASH_FILE}" ] && cached_hash=$(cat "${HASH_FILE}" | tr -d '[:space:]')
+if [ "${FORCE}" != "true" ] && [ "${cached_hash}" = "${latest_hash}" ]; then
+  echo -e "  ${GREEN}${CHECK} Skel is current (${latest_hash:0:8}) — nothing to sync${RESET}"
+  echo "✓ Already current (${latest_hash:0:8})" > "${RESULT_FILE}"
+  exit 0
+fi
+
+echo -e "  ${SPIN} Downloading channel tarball (${latest_hash:0:8})…"
+mkdir -p "${CACHE_DIR}"
+TARBALL="${CACHE_DIR}/patterns-${latest_hash:0:8}.tar.gz"
+if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
+  gh api "repos/${PATTERNS_REPO}/tarball/main" \
+    --header "Accept: application/vnd.github+json" \
+    > "${TARBALL}" 2>/dev/null || \
+  curl -sSfL "https://github.com/${PATTERNS_REPO}/archive/main.tar.gz" \
+    -o "${TARBALL}"
+else
+  curl -sSfL "https://github.com/${PATTERNS_REPO}/archive/main.tar.gz" \
+    -o "${TARBALL}"
+fi
+
+EXTRACT_DIR="${CACHE_DIR}/extracted-${latest_hash:0:8}"
+rm -rf "${EXTRACT_DIR}"
+mkdir -p "${EXTRACT_DIR}"
+tar -xzf "${TARBALL}" -C "${EXTRACT_DIR}" --strip-components=1
+
+SKEL_DIR="${EXTRACT_DIR}/lib/${PATTERNS_CHANNEL}/skel"
+if [ ! -d "${SKEL_DIR}" ]; then
+  echo -e "  ${YELLOW}⚠  No skel/ directory found in channel lib/${PATTERNS_CHANNEL}/skel${RESET}"
+  exit 0
+fi
+
+# ── Jinja-style interpolation ─────────────────────────────────────────────────
+interpolate_file() {
+  local src="$1"
+  local content
+  content=$(cat "${src}")
+  for key in "${!SKEL_VARS[@]}"; do
+    local val="${SKEL_VARS[$key]}"
+    # Escape for sed replacement (& and \ and / are special)
+    local escaped_val
+    escaped_val=$(printf '%s\n' "${val}" | sed 's/[&/\]/\\&/g; s/$/\\n/' | tr -d '\n' | sed 's/\\n$//')
+    content=$(echo "${content}" | sed "s|{{ skel\\.${key} }}|${escaped_val}|g")
+  done
+  # Warn on any un-replaced tokens
+  if echo "${content}" | grep -q '{{ skel\.'; then
+    remaining=$(echo "${content}" | grep -o '{{ skel\.[^}]* }}' | sort -u | tr '\n' ' ')
+    echo -e "  ${YELLOW}⚠  Unresolved skel vars in ${src##*/}: ${remaining}${RESET}" >&2
+  fi
+  printf '%s' "${content}"
+}
+
+# ── Compute changed files ─────────────────────────────────────────────────────
+CHANGED_FILES=()
+for rel_path in "${SKEL_FILES[@]}"; do
+  src="${SKEL_DIR}/${rel_path}"
+  dst="${ROOT}/${rel_path}"
+  [ ! -f "${src}" ] && continue
+
+  interpolated=$(interpolate_file "${src}")
+  if [ ! -f "${dst}" ] || [ "$(echo "${interpolated}" | sha256sum)" != "$(sha256sum < "${dst}")" ]; then
+    CHANGED_FILES+=("${rel_path}")
+  fi
+done
+
+if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
+  echo -e "  ${GREEN}${CHECK} All skel files are current — no changes needed${RESET}"
+  echo "✓ All skel files current (${latest_hash:0:8})" > "${RESULT_FILE}"
+  echo "${latest_hash}" > "${HASH_FILE}"
+  exit 0
+fi
+
+echo ""
+echo -e "  Changed skel files (${#CHANGED_FILES[@]}):"
+for f in "${CHANGED_FILES[@]}"; do
+  echo -e "    ${ARROW} ${f}"
+done
+echo ""
+
+if [ "${DRY_RUN}" = "true" ]; then
+  echo -e "${YELLOW}DRY RUN — no files written, no branch created${RESET}"
+  { echo "## Dry Run: Sync Down"; echo ""; echo "Would update ${#CHANGED_FILES[@]} file(s):"; echo ""; for f in "${CHANGED_FILES[@]}"; do echo "- \`${f}\`"; done; } > "${RESULT_FILE}"
+  exit 0
+fi
+
+# ── In CI: create a branch and PR ────────────────────────────────────────────
+if [ "${IS_CI}" = "true" ]; then
+  # Check if a sync-down PR is already open
+  existing_pr=$(gh pr list --head "${BRANCH}" --state open --json number -q '.[0].number' 2>/dev/null || echo "")
+  if [ -n "${existing_pr}" ]; then
+    echo -e "  ${YELLOW}⚠  PR #${existing_pr} already open for branch ${BRANCH} — skipping${RESET}"
+    exit 0
+  fi
+
+  CURRENT_BRANCH=$(git branch --show-current)
+  git checkout -b "${BRANCH}" 2>/dev/null || git checkout "${BRANCH}"
+
+  for rel_path in "${CHANGED_FILES[@]}"; do
+    src="${SKEL_DIR}/${rel_path}"
+    dst="${ROOT}/${rel_path}"
+    mkdir -p "$(dirname "${dst}")"
+    interpolate_file "${src}" > "${dst}"
+    git add "${dst}"
+    echo -e "  ${GREEN}${CHECK}${RESET} ${rel_path}"
+  done
+
+  echo "${latest_hash}" > "${HASH_FILE}"
+  git add "${HASH_FILE}"
+
+  git commit -m "chore: sync down skel files from dev-patterns@${latest_hash:0:8}
+
+Updated ${#CHANGED_FILES[@]} file(s) from ${PATTERNS_REPO} ${PATTERNS_CHANNEL} channel:
+$(for f in "${CHANGED_FILES[@]}"; do echo "  - ${f}"; done)"
+
+  git push -u origin "${BRANCH}"
+
+  PR_BODY="## Sync Down from dev-patterns
+
+Automated sync of skeleton files from \`${PATTERNS_REPO}\` (\`${PATTERNS_CHANNEL}\` channel @ \`${latest_hash:0:8}\`).
+
+### Changed files
+
+$(for f in "${CHANGED_FILES[@]}"; do echo "- \`${f}\`"; done)
+
+### Review checklist
+
+- [ ] Verify \`{{ skel.var }}\` placeholders were correctly interpolated
+- [ ] Check for any project-specific customisations that may have been overwritten
+- [ ] Run \`mise run ci\` after merging"
+
+  gh pr create \
+    --title "chore: sync down skel files from dev-patterns (${DATE})" \
+    --body "${PR_BODY}" \
+    --base develop \
+    --head "${BRANCH}" \
+    --draft \
+    --label "chore" 2>/dev/null || \
+  gh pr create \
+    --title "chore: sync down skel files from dev-patterns (${DATE})" \
+    --body "${PR_BODY}" \
+    --base develop \
+    --head "${BRANCH}" \
+    --draft
+
+  PR_URL=$(gh pr view "${BRANCH}" --json url -q '.url' 2>/dev/null || echo "")
+  echo ""
+  echo -e "${GREEN}${BOLD}${CHECK} Sync down PR created: ${PR_URL}${RESET}"
+
+  { echo "## Sync Down Complete"; echo ""; echo "Updated \`${#CHANGED_FILES[@]}\` file(s) from \`${PATTERNS_CHANNEL}\` @ \`${latest_hash:0:8}\`"; echo ""; echo "PR: ${PR_URL}"; } > "${RESULT_FILE}"
+
+  git checkout "${CURRENT_BRANCH}" 2>/dev/null || true
+
+else
+  # ── Locally: apply directly after confirmation ────────────────────────────
+  echo -e "${YELLOW}Apply ${#CHANGED_FILES[@]} file(s) directly to working tree? [y/N]${RESET} \c"
+  read -r confirm
+  if [[ "${confirm}" != "y" && "${confirm}" != "Y" ]]; then
+    echo "Aborted."
+    exit 0
+  fi
+
+  for rel_path in "${CHANGED_FILES[@]}"; do
+    src="${SKEL_DIR}/${rel_path}"
+    dst="${ROOT}/${rel_path}"
+    mkdir -p "$(dirname "${dst}")"
+    interpolate_file "${src}" > "${dst}"
+    echo -e "  ${GREEN}${CHECK}${RESET} ${rel_path}"
+  done
+
+  echo "${latest_hash}" > "${HASH_FILE}"
+  echo ""
+  echo -e "${GREEN}${BOLD}${CHECK} Skel files applied — review and commit the changes${RESET}"
+fi

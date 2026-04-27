@@ -1,0 +1,76 @@
+name: "Dispatch: Sync Down from dev-patterns"
+
+# Pulls updated skeleton files, tasks, hooks, and scripts from the
+# orchestras/dev-patterns deno1a channel into a feature PR branch.
+#
+# Behaviour:
+#   1. Fetches the latest commit hash for the configured channel in dev-patterns.
+#   2. Compares it against the locally recorded .patterns-hash.
+#   3. If stale (or forced), downloads the channel tarball and:
+#      a. Applies mise tasks  → .mise/tasks/
+#      b. Applies git hooks   → config/githooks/hooks/
+#      c. Applies skel files  → repo root (with {{ skel.var }} Jinja interpolation)
+#   4. If any files changed, creates a new branch (feature/sync-down-YYYY-MM-DD)
+#      and opens a draft PR for review.
+#
+# Idempotent — if a sync-down PR is already open, the workflow skips.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force sync even if hash is current"
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: "Dry run — show what would change without creating a PR"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-down:
+    name: "Sync down from dev-patterns"
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PATTERNS_REPO: "orchestras/dev-patterns"
+      PATTERNS_CHANNEL: "deno1a"
+
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+        with:
+          experimental: true
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run sync:down
+        env:
+          SYNC_FORCE: ${{ inputs.force }}
+          SYNC_DRY_RUN: ${{ inputs.dry_run }}
+          CI: "true"
+        run: mise run sync:down
+
+      - name: Summary
+        run: |
+          if [ -f ".sync-down-result" ]; then
+            cat ".sync-down-result" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "✓ sync:down completed" >> "$GITHUB_STEP_SUMMARY"
+          fi
