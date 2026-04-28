@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-#MISE description="Bump pre-release label (e.g. v0.1.5 → v0.1.5-alpha.1)"
+#MISE description="Bump pre-release label (e.g. 0.1.5 → 0.1.5-alpha.1)"
 # Usage: mise run bump:prerel [label]   (default label: alpha)
+# Pre-release tags use the format: 0.1.5-alpha.1 (bare semver base, no v-prefix).
 set -euo pipefail
 
 LABEL="${1:-alpha}"
 git fetch --tags origin
-latest=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v '+' | grep -v -- '-' | head -n 1)
-[ -z "$latest" ] && latest="v0.0.0"
+latest=$(git tag -l '[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
+[ -z "$latest" ] && latest="0.0.0"
 
-ver="${latest#v}"
-new="v${ver}-${LABEL}.1"
+new="${latest}-${LABEL}.1"
 
 tmp=$(mktemp)
 jq --arg v "${new}" '.version = $v' deno.json > "${tmp}" && mv "${tmp}" deno.json

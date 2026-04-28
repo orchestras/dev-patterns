@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
 # sync_patterns.sh — Bootstrap script for patterns channel subscription
 #
-# This thin shell wrapper:
-#   1. Ensures Python 3.12+ is available
-#   2. Downloads sync_patterns.py from the default patterns repo (if not present)
-#   3. Executes sync_patterns.py, which does the heavy lifting
-#
 # Usage:
 #   ./scripts/sync_patterns.sh [<repo> [<channel>]]
 #
 # Environment:
-#   PATTERNS_REPO    — GitHub org/repo (default: orchestras/dev-patterns)
+#   PATTERNS_REPO    — GitHub org/repo  (default: orchestras/dev-patterns)
 #   PATTERNS_CHANNEL — Channel name     (default: python3a)
 #
-# This script is intentionally tiny.  All real logic lives in sync_patterns.py.
-# This keeps the installed footprint small and the Python code testable.
+# Install in a new repo:
+#   gh api repos/orchestras/dev-patterns/contents/scripts/sync_patterns.sh \
+#     --jq '.content' | base64 -d > scripts/sync_patterns.sh && chmod +x scripts/sync_patterns.sh
 #
-# Install in a new repo (one-liner):
-#   curl -sSfL https://raw.githubusercontent.com/orchestras/dev-patterns/main/scripts/sync_patterns.sh \
+# Or with curl (public repo):
+#   curl -sSfL \
+#     https://raw.githubusercontent.com/orchestras/dev-patterns/main/scripts/sync_patterns.sh \
 #     -o scripts/sync_patterns.sh && chmod +x scripts/sync_patterns.sh
 
 set -euo pipefail
@@ -66,25 +63,42 @@ echo ""
 # ── Download sync_patterns.py if missing ─────────────────────────────────────
 if [ ! -f "${SYNC_PY}" ]; then
   echo -e "  ⟳ Downloading sync_patterns.py…"
-  RAW_URL="https://raw.githubusercontent.com/${PATTERNS_REPO}/main/scripts/sync_patterns.py"
-  if command -v curl &>/dev/null; then
-    curl -sSfL "${RAW_URL}" -o "${SYNC_PY}" || {
-      echo -e "${YELLOW}⚠  curl download failed.  Trying wget…${RESET}"
-      wget -qO "${SYNC_PY}" "${RAW_URL}"
-    }
-  elif command -v wget &>/dev/null; then
-    wget -qO "${SYNC_PY}" "${RAW_URL}"
-  else
-    echo -e "${YELLOW}⚠  Neither curl nor wget found.  Cannot download sync_patterns.py.${RESET}"
+  SYNC_PY_PATH="scripts/sync_patterns.py"
+
+  # Prefer gh CLI for authenticated/private repos
+  if command -v gh &>/dev/null; then
+    gh api "repos/${PATTERNS_REPO}/contents/${SYNC_PY_PATH}" \
+      --jq '.content' 2>/dev/null | base64 -d > "${SYNC_PY}" 2>/dev/null \
+      && [ -s "${SYNC_PY}" ] \
+      || {
+        # gh api succeeded but content was empty / failed — clear and fall through
+        rm -f "${SYNC_PY}"
+      }
+  fi
+
+  # Fallback to curl / wget
+  if [ ! -s "${SYNC_PY}" ]; then
+    RAW_URL="https://raw.githubusercontent.com/${PATTERNS_REPO}/main/${SYNC_PY_PATH}"
+    if command -v curl &>/dev/null; then
+      curl -sSfL "${RAW_URL}" -o "${SYNC_PY}" || rm -f "${SYNC_PY}"
+    elif command -v wget &>/dev/null; then
+      wget -qO "${SYNC_PY}" "${RAW_URL}" || rm -f "${SYNC_PY}"
+    fi
+  fi
+
+  if [ ! -s "${SYNC_PY}" ]; then
+    echo -e "${YELLOW}⚠  Could not download sync_patterns.py.${RESET}"
+    echo "   Try: gh api repos/${PATTERNS_REPO}/contents/scripts/sync_patterns.py --jq '.content' | base64 -d > ${SYNC_PY}"
     exit 1
   fi
+
   chmod +x "${SYNC_PY}"
   echo -e "  ${GREEN}✓ sync_patterns.py downloaded${RESET}"
 fi
 
 # ── Run the Python sync script ────────────────────────────────────────────────
 exec "${PYTHON}" "${SYNC_PY}" \
-  --repo   "${PATTERNS_REPO}" \
+  --repo    "${PATTERNS_REPO}" \
   --channel "${PATTERNS_CHANNEL}" \
-  --root   "${ROOT}" \
+  --root    "${ROOT}" \
   "$@"

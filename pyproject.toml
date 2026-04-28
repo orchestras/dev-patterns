@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dev-patterns"
-version = "0.1.0"
+version = "0.1.6"
 description = "Central patterns library: git hooks, mise tasks, and subscription channels for orchestras repositories"
 readme = "README.md"
 license = { file = "LICENSE" }
