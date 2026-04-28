@@ -1,23 +1,23 @@
 # .github/settings.yml — Repository configuration via the Settings app
 # https://github.com/apps/settings
 #
-# Applies declarative repository settings to orchestras/dev-patterns.
-# The Settings app reads this on every push to the default branch.
+# Applies declarative repository settings whenever this file changes on the
+# default branch. Run `mise run dispatch:configure` to trigger manually.
 
 repository:
-  name: dev-patterns
-  description: "Central patterns library: git hooks, mise tasks, and subscription channels for orchestras repositories"
-  homepage: https://github.com/orchestras/dev-patterns
-  topics: githooks, mise, patterns, devtools, orchestras
+  name: "{{ skel.repo_name }}"
+  description: "{{ skel.project_description }}"
+  homepage: "https://github.com/{{ skel.github_org }}/{{ skel.repo_name }}"
+  topics: "deno,typescript,mise,orchestras"
   private: false
   has_issues: true
   has_projects: false
   has_wiki: false
   has_downloads: false
-  default_branch: main
+  default_branch: develop
 
-  # Merge strategy — rebase only (no merge commits, no squash)
-  allow_squash_merge: false
+  # Merge strategy — rebase and squash only (no merge commits)
+  allow_squash_merge: true
   allow_merge_commit: false
   allow_rebase_merge: true
   allow_auto_merge: false
@@ -28,12 +28,18 @@ repository:
   enable_automated_security_fixes: true
 
 # ─── Rulesets ────────────────────────────────────────────────────────────────
-# These mirror what the python3a channel vcs:protect applies via the GitHub API.
-# actor_id 5 = RepositoryRole: admin
+# These mirror what `mise run vcs:protect` applies via the GitHub API.
+# The Settings app applies them declaratively; vcs:protect is the imperative
+# equivalent used for initial setup or manual re-application.
+#
+# Ruleset actor_id 5 = RepositoryRole: admin
 
 rulesets:
 
   # ── 1. branch-and-commit-restrictions (ALL branches) ──────────────────────
+  # Enforces signed commits, PR + code-owner review, required status checks,
+  # code scanning gate, conventional-commit message format, and branch name
+  # convention across every branch in the repository.
   - name: branch-and-commit-restrictions
     target: branch
     enforcement: active
@@ -50,10 +56,14 @@ rulesets:
         bypass_mode: always
 
     rules:
+      # Block deletions and force pushes on all branches
       - type: deletion
       - type: non_fast_forward
+
+      # Require GPG / SSH signed commits
       - type: required_signatures
 
+      # Require a pull request before merging
       - type: pull_request
         parameters:
           required_approving_review_count: 1
@@ -61,10 +71,11 @@ rulesets:
           require_last_push_approval: false
           require_code_owner_review: true
           allowed_merge_methods:
+            - squash
             - rebase
 
-      # Status checks must match the job names in .github/workflows/pr-check.yml
-      # (workflow: "PR Check", jobs: lint, typecheck, test, security)
+      # Require status checks to pass before merging
+      # Job names must match pr-check.yml job names exactly (pr-check / <job>)
       - type: required_status_checks
         parameters:
           strict_required_status_checks_policy: true
@@ -77,6 +88,7 @@ rulesets:
             - context: "CodeQL"
             - context: "code-scanning results / CodeQL"
 
+      # Require CodeQL code scanning results — errors block merge
       - type: code_scanning
         parameters:
           code_scanning_tools:
@@ -84,6 +96,7 @@ rulesets:
               security_alerts_threshold: errors
               alerts_threshold: errors
 
+      # Enforce branch naming convention
       - type: branch_name_pattern
         parameters:
           name: branch-name-convention
@@ -91,6 +104,7 @@ rulesets:
           operator: regex
           pattern: "^(main|develop|feature/.+|chore/.+|fix/.+|cursor/.+|release/.+|hotfix/.+)$"
 
+      # Enforce Conventional Commits format on commit messages
       - type: commit_message_pattern
         parameters:
           name: conventional-commits
@@ -99,6 +113,8 @@ rulesets:
           pattern: "^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)(\\([^)]+\\))?!?: .+"
 
   # ── 2. develop-protection (refs/heads/develop) ────────────────────────────
+  # Prevents direct creation, pushes, and deletions to develop.
+  # Merges must go through a PR (governed by branch-and-commit-restrictions).
   - name: develop-protection
     target: branch
     enforcement: active
@@ -121,6 +137,8 @@ rulesets:
       - type: non_fast_forward
 
   # ── 3. main-protection (refs/heads/main) ──────────────────────────────────
+  # Prevents direct creation, pushes, and deletions to main.
+  # Releases are gated through develop → main via vcs:release.
   - name: main-protection
     target: branch
     enforcement: active
@@ -142,6 +160,9 @@ rulesets:
       - type: deletion
       - type: non_fast_forward
 
+# ─── Dependabot ──────────────────────────────────────────────────────────────
+# Controlled via .github/dependabot.yml
+
 # ─── GHAS / Code Scanning ────────────────────────────────────────────────────
-# CodeQL runs on push to main/develop and weekly via .github/workflows/ghas-scan.yml.
+# CodeQL runs on push to main/develop and on every PR via pr-check.yml.
 # The code_scanning rule above gates merges on CodeQL results (errors threshold).
