@@ -44,6 +44,7 @@ files = [
   "AGENTS.md",
   ".github/CODEOWNERS",
   ".github/PULL_REQUEST_TEMPLATE.md",
+  ".github/settings.yml",
   ".github/workflows/ci.yml",
   ".github/workflows/pr-check.yml",
   ".github/workflows/dispatch-sync-down.yml",

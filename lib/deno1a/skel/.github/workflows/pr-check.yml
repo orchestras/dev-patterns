@@ -1,15 +1,18 @@
 name: PR Check
 
-# Each job name here MUST match the "context" strings in the branch ruleset.
-# After this workflow runs once on a PR, register the checks in your ruleset:
-#   mise run vcs:protect
-# or manually in GitHub Settings → Rules → Rulesets.
+# Job names here MUST match the "context" strings required by the
+# branch-and-commit-restrictions ruleset applied by `mise run vcs:protect`:
 #
-# Required checks registered by vcs:protect:
-#   - pr-check / lint
-#   - pr-check / typecheck
-#   - pr-check / test
-#   - pr-check / security
+#   pr-check / lint
+#   pr-check / typecheck
+#   pr-check / test
+#   pr-check / security
+#
+# The "security" job also produces the CodeQL SARIF that satisfies:
+#   CodeQL
+#   code-scanning results / CodeQL
+#
+# Run `mise run vcs:protect` after the first PR to register checks.
 
 on:
   pull_request:
@@ -37,10 +40,10 @@ jobs:
         with:
           experimental: true
 
-      - name: deno lint
+      - name: Lint check
         run: mise run lint:check
 
-      - name: deno fmt check
+      - name: Format check
         run: mise run fmt:check
 
   typecheck:
@@ -54,7 +57,7 @@ jobs:
         with:
           experimental: true
 
-      - name: deno check
+      - name: Type check
         run: mise run typecheck
 
   test:
@@ -79,7 +82,7 @@ jobs:
           deno-version: ${{ matrix.deno-version }}
 
       - name: Run tests
-        run: deno test -A --reporter=pretty
+        run: mise run test
 
   security:
     name: security

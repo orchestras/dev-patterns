@@ -1,6 +1,31 @@
 #!/usr/bin/env bash
-#MISE description="Apply branch protection rulesets (develop + main) via GitHub API"
-# Equivalent to running dispatch-autoconfigure-rulesets.yml locally.
+#MISE description="Apply 3 idempotent branch rulesets to develop and main via GitHub API"
+#
+# Rulesets applied (upserted by name — delete-then-create if exists):
+#
+#   1. branch-and-commit-restrictions  (target: ALL branches)
+#      - Bypass: repo admin (always)
+#      - Restrict deletions
+#      - Require signed commits
+#      - Require PR: 1 approval, code-owner review
+#      - Required status checks: pr-check/{lint,typecheck,test,security},
+#        CodeQL, code-scanning/results/CodeQL
+#      - Require code scanning: CodeQL (errors block, warnings warn)
+#      - Restrict branch creation to regex: ^(main|develop|feature/.+|chore/.+|fix/.+|cursor/.+)$
+#      - Restrict commit message to regex: conventional-commits prefix
+#      - Block force pushes
+#
+#   2. develop-protection  (target: refs/heads/develop)
+#      - Bypass: repo admin (pull_request mode)
+#      - Restrict create, update, delete
+#      - Block force pushes
+#
+#   3. main-protection  (target: refs/heads/main)
+#      - Bypass: repo admin (pull_request mode)
+#      - Restrict create, update, delete
+#      - Block force pushes
+#
+# Usage: mise run vcs:protect
 set -euo pipefail
 
 if ! gh auth status &>/dev/null; then
@@ -10,115 +35,159 @@ fi
 
 REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
 echo "Configuring rulesets for ${REPO}..."
+echo ""
 
-if ! git ls-remote --heads origin develop | grep -q develop; then
+# ── Ensure develop branch exists ─────────────────────────────────────────────
+if ! git ls-remote --heads origin develop 2>/dev/null | grep -q develop; then
   echo "Creating develop branch from main..."
   git checkout main && git pull origin main
   git checkout -b develop && git push -u origin develop
 fi
 
-# Set default branch
 gh api -X PATCH "repos/${REPO}" -f default_branch=develop --silent
 echo "✓ Default branch → develop"
+echo ""
 
-# Helper: delete existing ruleset by name (idempotent)
-delete_ruleset() {
+# ── Upsert helper: delete all rulesets with this name, then create ────────────
+upsert_ruleset() {
   local name="$1"
+  local payload="$2"
   local ids
-  ids=$(gh api "repos/${REPO}/rulesets" --jq ".[] | select(.name == \"${name}\") | .id" 2>/dev/null || true)
+  ids=$(gh api "repos/${REPO}/rulesets" \
+    --jq ".[] | select(.name == \"${name}\") | .id" 2>/dev/null || true)
   for id in ${ids}; do
     gh api -X DELETE "repos/${REPO}/rulesets/${id}" --silent 2>/dev/null || true
+    echo "  deleted stale ruleset id=${id} (${name})"
   done
+  echo "${payload}" | gh api -X POST "repos/${REPO}/rulesets" --input - >/dev/null
+  echo "✓ Ruleset: ${name}"
 }
 
-# Restrictions: all branches
-delete_ruleset "Restrictions: All branches"
-gh api -X POST "repos/${REPO}/rulesets" --input - <<'RULES' >/dev/null
-{
-  "name": "Restrictions: All branches",
+# ── 1. branch-and-commit-restrictions  (ALL branches) ────────────────────────
+upsert_ruleset "branch-and-commit-restrictions" '{
+  "name": "branch-and-commit-restrictions",
   "target": "branch",
   "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["~ALL"], "exclude": [] } },
+  "conditions": {
+    "ref_name": { "include": ["~ALL"], "exclude": [] }
+  },
+  "bypass_actors": [
+    { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always" }
+  ],
   "rules": [
     { "type": "deletion" },
-    { "type": "non_fast_forward" }
-  ],
-  "bypass_actors": [{ "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always" }]
-}
-RULES
-echo "✓ Ruleset: Restrictions: All branches"
-
-# Protection: develop
-delete_ruleset "Protection: develop"
-gh api -X POST "repos/${REPO}/rulesets" --input - <<'RULES' >/dev/null
-{
-  "name": "Protection: develop",
-  "target": "branch",
-  "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["refs/heads/develop"], "exclude": [] } },
-  "rules": [
-    { "type": "pull_request", "parameters": {
+    { "type": "non_fast_forward" },
+    { "type": "required_signatures" },
+    {
+      "type": "pull_request",
+      "parameters": {
         "required_approving_review_count": 1,
         "dismiss_stale_reviews_on_push": true,
         "require_last_push_approval": false,
-        "require_code_owner_review": false,
-        "allowed_merge_methods": ["squash","rebase"]
-    }},
-    { "type": "required_status_checks", "parameters": {
-        "strict_required_status_checks_policy": false,
+        "require_code_owner_review": true,
+        "allowed_merge_methods": ["squash", "rebase"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
         "do_not_enforce_on_create": true,
         "required_status_checks": [
-          {"context": "pr-check / lint"},
-          {"context": "pr-check / typecheck"},
-          {"context": "pr-check / test"},
-          {"context": "pr-check / security"}
+          { "context": "pr-check / lint" },
+          { "context": "pr-check / typecheck" },
+          { "context": "pr-check / test" },
+          { "context": "pr-check / security" },
+          { "context": "CodeQL" },
+          { "context": "code-scanning results / CodeQL" }
         ]
-    }},
-    { "type": "deletion" },
-    { "type": "non_fast_forward" }
-  ],
-  "bypass_actors": [{ "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }]
-}
-RULES
-echo "✓ Ruleset: Protection: develop"
+      }
+    },
+    {
+      "type": "code_scanning",
+      "parameters": {
+        "code_scanning_tools": [
+          {
+            "tool": "CodeQL",
+            "security_alerts_threshold": "errors",
+            "alerts_threshold": "errors"
+          }
+        ]
+      }
+    },
+    {
+      "type": "branch_name_pattern",
+      "parameters": {
+        "name": "branch-name-convention",
+        "negate": false,
+        "operator": "regex",
+        "pattern": "^(main|develop|feature/.+|chore/.+|fix/.+|cursor/.+|release/.+|hotfix/.+)$"
+      }
+    },
+    {
+      "type": "commit_message_pattern",
+      "parameters": {
+        "name": "conventional-commits",
+        "negate": false,
+        "operator": "regex",
+        "pattern": "^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)(\\([^)]+\\))?!?: .+"
+      }
+    }
+  ]
+}'
 
-# Protection: main
-delete_ruleset "Protection: main"
-gh api -X POST "repos/${REPO}/rulesets" --input - <<'RULES' >/dev/null
-{
-  "name": "Protection: main",
+# ── 2. develop-protection  (refs/heads/develop only) ─────────────────────────
+upsert_ruleset "develop-protection" '{
+  "name": "develop-protection",
   "target": "branch",
   "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["refs/heads/main"], "exclude": [] } },
+  "conditions": {
+    "ref_name": { "include": ["refs/heads/develop"], "exclude": [] }
+  },
+  "bypass_actors": [
+    { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }
+  ],
   "rules": [
-    { "type": "pull_request", "parameters": {
-        "required_approving_review_count": 1,
-        "dismiss_stale_reviews_on_push": true,
-        "require_last_push_approval": true,
-        "require_code_owner_review": true,
-        "allowed_merge_methods": ["rebase"]
-    }},
-    { "type": "required_status_checks", "parameters": {
-        "strict_required_status_checks_policy": true,
-        "do_not_enforce_on_create": false,
-        "required_status_checks": [
-          {"context": "pr-check / lint"},
-          {"context": "pr-check / typecheck"},
-          {"context": "pr-check / test"},
-          {"context": "pr-check / security"},
-          {"context": "tag"}
-        ]
-    }},
-    { "type": "required_linear_history" },
-    { "type": "required_signatures" },
+    { "type": "creation" },
+    { "type": "update" },
     { "type": "deletion" },
     { "type": "non_fast_forward" }
+  ]
+}'
+
+# ── 3. main-protection  (refs/heads/main only) ────────────────────────────────
+upsert_ruleset "main-protection" '{
+  "name": "main-protection",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": { "include": ["refs/heads/main"], "exclude": [] }
+  },
+  "bypass_actors": [
+    { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }
   ],
-  "bypass_actors": [{ "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }]
-}
-RULES
-echo "✓ Ruleset: Protection: main"
+  "rules": [
+    { "type": "creation" },
+    { "type": "update" },
+    { "type": "deletion" },
+    { "type": "non_fast_forward" }
+  ]
+}'
 
 echo ""
-echo "✓ All branch rulesets applied to ${REPO}"
-echo "  Required status checks: pr-check / lint, typecheck, test, security"
+echo "✓ All 3 rulesets applied to ${REPO}"
+echo ""
+echo "  branch-and-commit-restrictions — ALL branches"
+echo "    Required status checks:"
+echo "      pr-check / lint"
+echo "      pr-check / typecheck"
+echo "      pr-check / test"
+echo "      pr-check / security"
+echo "      CodeQL"
+echo "      code-scanning results / CodeQL"
+echo ""
+echo "  develop-protection — refs/heads/develop (create/update/delete/force-push blocked)"
+echo "  main-protection    — refs/heads/main    (create/update/delete/force-push blocked)"
+echo ""
+echo "  Note: Open one PR first so GitHub registers the pr-check job names,"
+echo "  then re-run this task to lock in the status check requirements."
