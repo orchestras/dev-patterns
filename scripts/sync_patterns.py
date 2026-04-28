@@ -180,8 +180,9 @@ def _is_release_tag(version: str) -> bool:
 # ── GitHub helpers ────────────────────────────────────────────────────────────
 
 def _gh_available() -> bool:
+    """Return True if the gh CLI binary is present (does NOT check auth status)."""
     try:
-        r = subprocess.run(["gh", "auth", "status"], capture_output=True, timeout=5)
+        r = subprocess.run(["gh", "--version"], capture_output=True, timeout=5)
         return r.returncode == 0
     except Exception:
         return False

@@ -1,35 +1,43 @@
 #!/usr/bin/env bash
-#MISE description="Install mise shell completions (detects bash/zsh/fish)"
+#MISE description="Install mise shell completions (detects parent shell; must be run interactively)"
+# mise tasks run in a bash subshell — shell type is read from $SHELL env var
+# which is inherited from the user's login shell, not the subshell itself.
+# Prompts require an interactive terminal; run directly, not via CI pipelines.
 set -euo pipefail
-CURRENT_SHELL=$(basename "${SHELL:-/bin/bash}")
-echo "Detected shell: $CURRENT_SHELL"
-install_bash() {
-  local default="$HOME/.local/share/bash-completion/completions/mise"
-  read -rp "Bash completion path [$default]: " dest
-  dest="${dest:-$default}"
-  mkdir -p "$(dirname "$dest")"
-  mise completion bash > "$dest"
-  echo "  ✓ Bash completions → $dest"
-}
-install_zsh() {
-  local default="$HOME/.zsh/completions/_mise"
-  read -rp "Zsh completion path [$default]: " dest
-  dest="${dest:-$default}"
-  mkdir -p "$(dirname "$dest")"
-  mise completion zsh > "$dest"
-  echo "  ✓ Zsh completions → $dest"
-}
-install_fish() {
-  local default="${XDG_CONFIG_HOME:-$HOME/.config}/fish/completions/mise.fish"
-  read -rp "Fish completion path [$default]: " dest
-  dest="${dest:-$default}"
-  mkdir -p "$(dirname "$dest")"
-  mise completion fish > "$dest"
-  echo "  ✓ Fish completions → $dest"
-}
-case "$CURRENT_SHELL" in
-  fish) install_fish ;;
-  zsh)  install_zsh ;;
-  *)    install_bash ;;
+
+# Detect the user's actual shell from $SHELL (inherited, not the subshell)
+SHELL_NAME=$(basename "${SHELL:-bash}")
+
+echo "Detected shell: ${SHELL_NAME}"
+
+case "${SHELL_NAME}" in
+  fish)
+    DEFAULT="${XDG_CONFIG_HOME:-${HOME}/.config}/fish/completions/mise.fish"
+    printf "Fish completion path [%s]: " "${DEFAULT}"
+    read -r dest </dev/tty
+    dest="${dest:-${DEFAULT}}"
+    mkdir -p "$(dirname "${dest}")"
+    mise completion fish > "${dest}"
+    echo "  ✓ Fish completions → ${dest}"
+    ;;
+  zsh)
+    DEFAULT="${HOME}/.zsh/completions/_mise"
+    printf "Zsh completion path [%s]: " "${DEFAULT}"
+    read -r dest </dev/tty
+    dest="${dest:-${DEFAULT}}"
+    mkdir -p "$(dirname "${dest}")"
+    mise completion zsh > "${dest}"
+    echo "  ✓ Zsh completions → ${dest}"
+    ;;
+  *)
+    DEFAULT="${HOME}/.local/share/bash-completion/completions/mise"
+    printf "Bash completion path [%s]: " "${DEFAULT}"
+    read -r dest </dev/tty
+    dest="${dest:-${DEFAULT}}"
+    mkdir -p "$(dirname "${dest}")"
+    mise completion bash > "${dest}"
+    echo "  ✓ Bash completions → ${dest}"
+    ;;
 esac
-echo "✓ Done. Restart your shell to activate completions."
+
+echo "✓ Done. Restart your shell or run: source ${dest}"
